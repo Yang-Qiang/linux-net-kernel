@@ -310,12 +310,12 @@ struct napi_struct {
 	 * to the per-cpu poll_list, and whoever clears that bit
 	 * can remove from the list right before clearing the bit.
 	 */
-	struct list_head	poll_list;
+	struct list_head	poll_list;  /* 用于加入处于轮询状态的设备队列 */
 
-	unsigned long		state;
-	int			weight;
+	unsigned long		state; /* 设备的状态 */
+	int			weight; /* 每次处理的最大数量，非NAPI默认为64 */
 	unsigned int		gro_count;
-	int			(*poll)(struct napi_struct *, int);
+	int			(*poll)(struct napi_struct *, int); /* 此设备的轮询方法，非NAPI为process_backlog() */
 #ifdef CONFIG_NETPOLL
 	spinlock_t		poll_lock;
 	int			poll_owner;
@@ -515,8 +515,8 @@ struct netdev_queue {
 /*
  * read mostly part
  */
-	struct net_device	*dev;
-	struct Qdisc		*qdisc;
+	struct net_device	*dev; /*队列所属网络设备*/
+	struct Qdisc		*qdisc; /*发送队列对应的队列策略结构体链表*/
 	struct Qdisc		*qdisc_sleeping;
 #ifdef CONFIG_SYSFS
 	struct kobject		kobj;
@@ -528,11 +528,11 @@ struct netdev_queue {
  * write mostly part
  */
 	spinlock_t		_xmit_lock ____cacheline_aligned_in_smp;
-	int			xmit_lock_owner;
+	int			xmit_lock_owner;//持有该队列锁的cpu id 调用smp_processor_id()
 	/*
 	 * please use this field instead of dev->trans_start
 	 */
-	unsigned long		trans_start;
+	unsigned long		trans_start; /*本次队列最进一次开始发送的时间戳*/
 
 	/*
 	 * Number of TX timeouts for this queue
@@ -540,7 +540,7 @@ struct netdev_queue {
 	 */
 	unsigned long		trans_timeout;
 
-	unsigned long		state;
+	unsigned long		state; /*队列的运行状态*/
 
 #ifdef CONFIG_BQL
 	struct dql		dql;
@@ -1044,13 +1044,13 @@ struct net_device {
 	 * (i.e. as seen by users in the "Space.c" file).  It is the name
 	 * of the interface.
 	 */
-	char			name[IFNAMSIZ];
+	char			name[IFNAMSIZ]; //用于存放网络设备的设备名称；
 
 	/* device name hash chain, please keep it close to name[] */
-	struct hlist_node	name_hlist;
-
+	struct hlist_node	name_hlist; //这个字段用于构建网络设备名的哈希散列表，而struct net中的name_hlist就指向每个哈希散列表的链表头；
+									//通过网卡名获取网卡设备时，会用到该字段
 	/* snmp alias */
-	char 			*ifalias;
+	char 			*ifalias; //网络设备的别名；
 
 	/*
 	 *	I/O specific fields
@@ -1059,16 +1059,16 @@ struct net_device {
 	unsigned long		mem_end;	/* shared mem end	*/
 	unsigned long		mem_start;	/* shared mem start	*/
 	unsigned long		base_addr;	/* device I/O address	*/
-	unsigned int		irq;		/* device IRQ number	*/
+	unsigned int		irq;		/* device IRQ number	*/  //设备使用的中断号
 
 	/*
 	 *	Some hardware also needs these fields, but they are not
 	 *	part of the usual set specified in Space.c.
 	 */
 
-	unsigned long		state;
+	unsigned long		state;//网卡状态，如网络链接是否完整
 
-	struct list_head	dev_list;
+	struct list_head	dev_list;//用于将每一个网络设备加入到一个网络命名空间中的网络设备双链表中
 	struct list_head	napi_list;
 	struct list_head	unreg_list;
 	struct list_head	upper_dev_list; /* List of upper devices */
@@ -1090,7 +1090,7 @@ struct net_device {
 	netdev_features_t	hw_enc_features;
 
 	/* Interface index. Unique device identifier	*/
-	int			ifindex;
+	int			ifindex;   //网络设备的接口索引值，独一无二的网络设备标识符；
 	int			iflink;
 
 	struct net_device_stats	stats;
@@ -1106,13 +1106,13 @@ struct net_device {
 	struct iw_public_data *	wireless_data;
 #endif
 	/* Management operations */
-	const struct net_device_ops *netdev_ops;
-	const struct ethtool_ops *ethtool_ops;
+	const struct net_device_ops *netdev_ops; //网络设备驱动操作函数集
+	const struct ethtool_ops *ethtool_ops;   //ethtool操作函数集
 
 	/* Hardware header description */
 	const struct header_ops *header_ops;
 
-	unsigned int		flags;	/* interface flags (a la BSD)	*/
+	unsigned int		flags;	/* interface flags (a la BSD)	*/ //网络设备接口的标识符,其状态类型被定义在<linux/if.h>之中；
 	unsigned int		priv_flags; /* Like 'flags' but invisible to userspace.
 					     * See if.h for definitions. */
 	unsigned short		gflags;
@@ -1124,9 +1124,9 @@ struct net_device {
 	unsigned char		if_port;	/* Selectable AUI, TP,..*/
 	unsigned char		dma;		/* DMA channel		*/
 
-	unsigned int		mtu;	/* interface MTU value		*/
-	unsigned short		type;	/* interface hardware type	*/
-	unsigned short		hard_header_len;	/* hardware hdr length	*/
+	unsigned int		mtu;	/* interface MTU value		*/  //网络设备接口的最大传输单元；
+	unsigned short		type;	/* interface hardware type	*/  //接口硬件类型，在<if_arp.h>中定义了每一个接口硬件类型；
+	unsigned short		hard_header_len;	/* hardware hdr length	*/ //硬件接口头长度；
 
 	/* extra head- and tailroom the hardware may need, but not in all cases
 	 * can this be guaranteed, especially tailroom. Some cases also use
@@ -1152,9 +1152,9 @@ struct net_device {
 	struct kset		*queues_kset;
 #endif
 
-	bool			uc_promisc;
-	unsigned int		promiscuity;
-	unsigned int		allmulti;
+	bool			uc_promisc; //网络设备接口的单播模式
+	unsigned int		promiscuity;//网络设备是否为混杂模式
+	unsigned int		allmulti;  //网络设备接口的全组播模式；
 
 
 	/* Protocol specific pointers */
@@ -1191,7 +1191,7 @@ struct net_device {
 
 
 #ifdef CONFIG_RPS
-	struct netdev_rx_queue	*_rx;
+	struct netdev_rx_queue	*_rx; ////网络设备接口的数据包接收队列；每个cpu对应一个发送队列？
 
 	/* Number of RX queues allocated at register_netdev() time */
 	unsigned int		num_rx_queues;
@@ -1211,7 +1211,7 @@ struct net_device {
 /*
  * Cache lines mostly used on transmit path
  */
-	struct netdev_queue	*_tx ____cacheline_aligned_in_smp;
+	struct netdev_queue	*_tx ____cacheline_aligned_in_smp; //网络设备接口的数据包发送队列；
 
 	/* Number of TX queues allocated at alloc_netdev_mq() time  */
 	unsigned int		num_tx_queues;
@@ -1241,7 +1241,7 @@ struct net_device {
 	 * trans_start here is expensive for high speed devices on SMP,
 	 * please use netdev_queue->trans_start instead.
 	 */
-	unsigned long		trans_start;	/* Time (in jiffies) of last Tx	*/
+	unsigned long		trans_start;	/* Time (in jiffies) of last Tx	*/ //最后一次传输的开始时间。
 
 	int			watchdog_timeo; /* used by dev_watchdog() */
 	struct timer_list	watchdog_timer;
@@ -1252,7 +1252,8 @@ struct net_device {
 	/* delayed register/unregister */
 	struct list_head	todo_list;
 	/* device index hash chain */
-	struct hlist_node	index_hlist;
+	struct hlist_node	index_hlist;  //用于构建网络设备的接口索引值哈希散列表，在struct net中的
+     								  //index_hlist用于指向接口索引值哈希散列表的链表头；
 
 	struct list_head	link_watch_list;
 
@@ -1280,7 +1281,7 @@ struct net_device {
 #endif
 
 #ifdef CONFIG_NET_NS
-	/* Network namespace this network device is inside */
+	/* Network namespace this network device is inside */  //网络设备所在的命名空间；
 	struct net		*nd_net;
 #endif
 
@@ -1393,9 +1394,9 @@ int netdev_get_num_tc(struct net_device *dev)
 
 static inline
 struct netdev_queue *netdev_get_tx_queue(const struct net_device *dev,
-					 unsigned int index)
+					 unsigned int index) 
 {
-	return &dev->_tx[index];
+	return &dev->_tx[index]; //index为cpu id
 }
 
 static inline void netdev_for_each_tx_queue(struct net_device *dev,
@@ -1489,6 +1490,7 @@ static inline void *netdev_priv(const struct net_device *dev)
  * netif_napi_add() must be used to initialize a napi context prior to calling
  * *any* of the other napi related functions.
  */
+ //把网络设备net_device 和NAPI结构相绑定。
 void netif_napi_add(struct net_device *dev, struct napi_struct *napi,
 		    int (*poll)(struct napi_struct *, int), int weight);
 
@@ -1667,11 +1669,18 @@ extern void		dev_add_offload(struct packet_offload *po);
 extern void		dev_remove_offload(struct packet_offload *po);
 extern void		__dev_remove_offload(struct packet_offload *po);
 
+//根据网卡一些信息获取网卡设备
 extern struct net_device	*dev_get_by_flags_rcu(struct net *net, unsigned short flags,
 						      unsigned short mask);
 extern struct net_device	*dev_get_by_name(struct net *net, const char *name);
 extern struct net_device	*dev_get_by_name_rcu(struct net *net, const char *name);
 extern struct net_device	*__dev_get_by_name(struct net *net, const char *name);
+
+extern struct net_device	*dev_get_by_index(struct net *net, int ifindex);
+extern struct net_device	*__dev_get_by_index(struct net *net, int ifindex);
+extern struct net_device	*dev_get_by_index_rcu(struct net *net, int ifindex);
+
+//这些函数应该是在网卡初始化个和关闭时被调用
 extern int		dev_alloc_name(struct net_device *dev, const char *name);
 extern int		dev_open(struct net_device *dev);
 extern int		dev_close(struct net_device *dev);
@@ -1692,10 +1701,8 @@ extern void		free_netdev(struct net_device *dev);
 extern void		synchronize_net(void);
 extern int		init_dummy_netdev(struct net_device *dev);
 
-extern struct net_device	*dev_get_by_index(struct net *net, int ifindex);
-extern struct net_device	*__dev_get_by_index(struct net *net, int ifindex);
-extern struct net_device	*dev_get_by_index_rcu(struct net *net, int ifindex);
-extern int		netdev_get_name(struct net *net, char *name, int ifindex);
+
+extern int		netdev_get_name(struct net *net, char *name, int ifindex);//根据网卡索引获取网卡名
 extern int		dev_restart(struct net_device *dev);
 #ifdef CONFIG_NETPOLL_TRAP
 extern int		netpoll_trap(void);
@@ -1858,7 +1865,7 @@ static inline void netif_tx_start_queue(struct netdev_queue *dev_queue)
 }
 
 /**
- *	netif_start_queue - allow transmit
+ *	netif_start_queue - allow transmit 开始传输数据包
  *	@dev: network device
  *
  *	Allow upper layers to call the device hard_start_xmit routine.
@@ -2306,7 +2313,7 @@ extern unsigned long dev_trans_start(struct net_device *dev);
 
 extern void __netdev_watchdog_up(struct net_device *dev);
 
-extern void netif_carrier_on(struct net_device *dev);
+extern void netif_carrier_on(struct net_device *dev);//在网卡驱动中读写该位信息就可一判断网络是否链接通路
 
 extern void netif_carrier_off(struct net_device *dev);
 
@@ -2429,6 +2436,7 @@ static inline u32 netif_msg_init(int debug_value, int default_msg_enable_bits)
 	return (1 << debug_value) - 1;
 }
 
+
 static inline void __netif_tx_lock(struct netdev_queue *txq, int cpu)
 {
 	spin_lock(&txq->_xmit_lock);
@@ -2473,6 +2481,9 @@ static inline void txq_trans_update(struct netdev_queue *txq)
  *
  * Get network device transmit lock
  */
+
+//调用网卡驱动发送报文时，使用锁dev->dev_queue->_xmit_lock来保护，防止多个cpu核同时操作网络设备。使用宏HARD_TX_LOCK 来上锁。
+
 static inline void netif_tx_lock(struct net_device *dev)
 {
 	unsigned int i;
