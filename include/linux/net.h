@@ -58,7 +58,7 @@ struct net;
 enum sock_type {
 	SOCK_STREAM	= 1,
 	SOCK_DGRAM	= 2,
-	SOCK_RAW	= 3,
+	SOCK_RAW	= 3,//原始套接字,若设置IP_HDRINCL选项，SOCK_RAW可以操作IP头数据（也就是用户需用填充IP头及其以上的payload）
 	SOCK_RDM	= 4,
 	SOCK_SEQPACKET	= 5,
 	SOCK_DCCP	= 6,

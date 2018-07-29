@@ -217,7 +217,7 @@ static inline void kick_all_cpus_sync(void) {  }
   extern unsigned int debug_smp_processor_id(void);
 # define smp_processor_id() debug_smp_processor_id()
 #else
-# define smp_processor_id() raw_smp_processor_id()
+# define smp_processor_id() raw_smp_processor_id() //内核中有许多地方需要获取当前活动的cpu id，这个是有smp_processor_id完成的
 #endif
 
 #define get_cpu()		({ preempt_disable(); smp_processor_id(); })
