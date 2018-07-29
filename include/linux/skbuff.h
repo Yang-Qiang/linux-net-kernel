@@ -398,14 +398,14 @@ typedef unsigned char *sk_buff_data_t;
  */
 
 struct sk_buff {
-	/* These two members must be first. */
+	/* These two members must be first. 这两个域是用来连接相关的skb的(例如如果有分片，将这些分片连接在一起可以) */
 	struct sk_buff		*next;
 	struct sk_buff		*prev;
 
-	ktime_t			tstamp;
+	ktime_t			tstamp; //记录接收或者传输报文的时间戳
 
-	struct sock		*sk;
-	struct net_device	*dev;
+	struct sock		*sk; //指向拥有此缓冲区的套接字的sock数据结构。
+	struct net_device	*dev; //标记接收和发送当前包的设备
 
 	/*
 	 * This is the control buffer. It is free to use for every
@@ -413,15 +413,20 @@ struct sk_buff {
 	 * want to keep them across layers you have to do a skb_clone()
 	 * first. This is owned by whoever has the skb queued ATM.
 	 */
+	 /*这是一个“控制缓冲区”，或者说是私有信息的存储空间，为每一层内部使用起维护的作用。该字段在sk_buff结构内
+	 静态分配，而且容量足以容纳每个层所需的私有数据。通过宏进行访问。
+	 例如：TCP使用这个空间存储一个tcp_skb_cb数据结构。那么访问该数据结构的宏如下：
+	 define TCP_SKB_CB(_ _skb) ((struct tcp_skb_cb *)&((_ _skb)->cb[0]))
+	*/
 	char			cb[48] __aligned(8);
 
 	unsigned long		_skb_refdst;
 #ifdef CONFIG_XFRM
 	struct	sec_path	*sp;
 #endif
-	unsigned int		len,
-				data_len;
-	__u16			mac_len,
+	unsigned int		len, //指缓冲区中数据区块的大小。这个长度包括主要缓冲区（由head所指）的数据以及一些片段的数据。len也会把报头算在内。
+				data_len; //只计算片段中的数据的大小。
+	__u16			mac_len,//指的是mac头长度
 				hdr_len;
 	union {
 		__wsum		csum;
@@ -430,36 +435,38 @@ struct sk_buff {
 			__u16	csum_offset;
 		};
 	};
-	__u32			priority;
+	__u32			priority;//表示正被传输或转发的包QoS等级,取决于ip中的tos域
 	kmemcheck_bitfield_begin(flags1);
-	__u8			local_df:1,
-				cloned:1,
-				ip_summed:2,
+	__u8			local_df:1,//允许在本地分配
+				cloned:1,//保存当前的skb_buff是克隆的还是原始数据
+				ip_summed:2, //是否计算ip校验和
 				nohdr:1,
 				nfctinfo:3;
-	__u8			pkt_type:3,
-				fclone:2,
+	__u8			pkt_type:3,//报文类型，例如广播，多播，回环，本机，类型在packet.h定义
+				fclone:2,//skb_buff克隆状态
 				ipvs_property:1,
 				peeked:1,
 				nf_trace:1;
 	kmemcheck_bitfield_end(flags1);
-	__be16			protocol;
+	__be16			protocol;//表示L3层的协议。比如IP,IPV6等,整的列表在 include/linux/if_ether.h 中。由于每个协议都有自己的协议处理函数来处理接收到的包，因此，这个域被设备驱动用于通知上层调用哪个协议处理函数。
 
-	void			(*destructor)(struct sk_buff *skb);
+	void			(*destructor)(struct sk_buff *skb);/////skb的析构函数，一般都是设置为sock_rfree或者sock_wfree.  
+	//netfilter相关的域。 
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
-	struct nf_conntrack	*nfct;
+	struct nf_conntrack	*nfct; //netfilter的跟踪连接重新组装指针
 #endif
 #ifdef CONFIG_BRIDGE_NETFILTER
-	struct nf_bridge_info	*nf_bridge;
+	struct nf_bridge_info	*nf_bridge; //保存桥接信息
 #endif
 
-	int			skb_iif;
+	int			skb_iif;//接收设备的index
 
 	__u32			rxhash;
 
 	__be16			vlan_proto;
-	__u16			vlan_tci;
+	__u16			vlan_tci; //vlan的控制tag。
 
+//流量控制的相关域。	
 #ifdef CONFIG_NET_SCHED
 	__u16			tc_index;	/* traffic control index */
 #ifdef CONFIG_NET_CLS_ACT
@@ -499,20 +506,22 @@ struct sk_buff {
 		__u32		dropcount;
 		__u32		reserved_tailroom;
 	};
-
+	//封装的各层协议头的指针
 	sk_buff_data_t		inner_transport_header;
 	sk_buff_data_t		inner_network_header;
 	sk_buff_data_t		inner_mac_header;
+	//是指向TCP/IP 各层协议头的指针：th指向L4(传输层)，nh指向L3(网络层)， mach指向L2(数据链路层)。
 	sk_buff_data_t		transport_header;
 	sk_buff_data_t		network_header;
 	sk_buff_data_t		mac_header;
 	/* These elements must be at the end, see alloc_skb() for details.  */
-	sk_buff_data_t		tail;
-	sk_buff_data_t		end;
-	unsigned char		*head,
-				*data;
-	unsigned int		truesize;
-	atomic_t		users;
+	sk_buff_data_t		tail;//指向数据的结尾！
+	sk_buff_data_t		end; //分配的内存块的结尾！ ( 由上面我们知道数据结尾 != 分配的内存块的结尾 )
+	unsigned char		*head, //分配给的线性数据内存首地址( 建立起一个观念：并不是分配这么多内存，就都能被使用作为数据存储，可能没这么多
+							   //分配这么多 就足够了，也不一定(非线性数据就是例子) )
+				*data;//指向保存数据内容的首地址！我们由head可以知道，head和data不一定就是指在同一个位置！！！
+	unsigned int		truesize;//代表缓冲区的总大小，包括sk_buff结构本身。
+	atomic_t		users; //使用当前sk_buff缓冲区的引用计数。为0才会释放。
 };
 
 #ifdef __KERNEL__
