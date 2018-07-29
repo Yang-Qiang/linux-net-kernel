@@ -303,6 +303,16 @@ extern int __init netdev_boot_setup(char *str);
 /*
  * Structure for NAPI scheduling similar to tasklet but with weighting
  */
+/*
+NAPI和非NAPI的区别：
+
+(1) 支持NAPI的网卡驱动必须提供轮询方法poll()。
+
+(2) 非NAPI的内核接口为netif_rx()，NAPI的内核接口为napi_schedule()。
+
+(3) 非NAPI使用共享的CPU队列softnet_data->input_pkt_queue，NAPI使用设备内存(或者设备驱动程序的接收环)。
+*/
+
 struct napi_struct {
 	/* The poll_list must only be managed by the entity which
 	 * changes the state of the NAPI_STATE_SCHED bit.  This means
@@ -420,12 +430,13 @@ static inline bool napi_schedule_prep(struct napi_struct *n)
  * Schedule NAPI poll routine to be called if it is not already
  * running.
  */
+ /*在网卡驱动的中断处理函数中调用napi_schedule()来使用NAPI。*/
 static inline void napi_schedule(struct napi_struct *n)
 {
 	if (napi_schedule_prep(n))
 		__napi_schedule(n);
 }
-
+/*判断NAPI是否可以调度。如果NAPI没有被禁止，且不存在已被调度的NAPI，*/
 /* Try to reschedule poll. Called by dev->poll() after napi_complete().  */
 static inline bool napi_reschedule(struct napi_struct *napi)
 {
