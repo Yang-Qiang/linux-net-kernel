@@ -189,44 +189,50 @@ bool ip_call_ra_chain(struct sk_buff *skb)
 
 //从这里进入L4传输层
 /*
- * ip_local_deliver_finish()将输入数据包从网络层传递
- * 到传输层。过程如下:
+ ip_local_deliver_finish()主要做了：
+ 处理RAW IP，如果有配置安全策略，则进行IPsec安全检查。
+ 根据IP报头的protocol字段，找到对应的L4协议(net_protocol)，调用该协议的接收函数net_protocol->handler()。
+ 对于TCP协议，net_protocol实例为tcp_protocol，协议处理函数为tcp_v4_rcv()。
+ 接下来就进入四层协议的处理流程了，TCP协议的入口函数为tcp_v4_rcv().
+
+ * ip_local_deliver_finish()将输入数据包从网络层传递到传输层。过程如下:
  * 1)首先，在数据包传递给传输层之前，去掉IP首部
- * 2)接着，如果是RAW套接字接收数据包，则需要
- * 复制一份副本，输入到接收该数据包的套接字。
- * 3)最后，通过传输层的接收例程，将数据包传递
- * 到传输层，由传输层进行处理。
+ * 2)接着，如果是RAW套接字接收数据包，则需要复制一份副本，输入到接收该数据包的套接字。
+ * 3)最后，通过传输层的接收例程，将数据包传递到传输层，由传输层进行处理。
  */
 static int ip_local_deliver_finish(struct sk_buff *skb)
 {
 	struct net *net = dev_net(skb->dev);
 	/*
-	 * 在数据包传递给传输层之前，先去掉
-	 * IP首部。
+	 * 在数据包传递给传输层之前，先去掉IP首部,把skb->data指向L4协议头，更新skb->len
 	 */
 	__skb_pull(skb, skb_network_header_len(skb));
 
 	rcu_read_lock();
 	{
-		int protocol = ip_hdr(skb)->protocol;
+		int protocol = ip_hdr(skb)->protocol;  /* L4协议号 */
 		const struct net_protocol *ipprot;
 		int raw;
 
 	resubmit:
-		raw = raw_local_deliver(skb, protocol);
+		raw = raw_local_deliver(skb, protocol);/* 处理RAW套接字 */
 
-		ipprot = rcu_dereference(inet_protos[protocol]);
+		/* 查找对应的pro */
+		ipprot = rcu_dereference(inet_protos[protocol]); /* 从inet_protos数组中取出对应的net_protocol元素，TCP的为tcp_protocol */
 		if (ipprot != NULL) {
 			int ret;
 
-			if (!ipprot->no_policy) {
+			if (!ipprot->no_policy) {/* 如果需要检查IPsec安全策略 */
 				if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb)) {
 					kfree_skb(skb);
 					goto out;
 				}
 				nf_reset(skb);
 			}
-			ret = ipprot->handler(skb);
+			/* 调用L4协议的处理函数，对于TCP，调用tcp_protocol->handler，为tcp_v4_rcv(),对于udp协议为udp_rcv()
+			 * L4协议的处理函数实现在af_inet.c文件中
+			 */
+			ret = ipprot->handler(skb); 
 			if (ret < 0) {
 				protocol = -ret;
 				goto resubmit;
