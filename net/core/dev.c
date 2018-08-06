@@ -644,7 +644,7 @@ __setup("netdev=", netdev_boot_setup);
 
 /**
  *	__dev_get_by_name	- find a device by its name
- *	@net: the applicable net namespace
+ *	@net: the applicable net namespace 
  *	@name: name to find
  *
  *	Find an interface by name. Must be called under RTNL semaphore
@@ -693,8 +693,8 @@ struct net_device *dev_get_by_name_rcu(struct net *net, const char *name)
 EXPORT_SYMBOL(dev_get_by_name_rcu);
 
 /**
- *	dev_get_by_name		- find a device by its name
- *	@net: the applicable net namespace
+ *	dev_get_by_name		- find a device by its name 
+ *	@net: the applicable net namespace 设备所在的网络空间
  *	@name: name to find
  *
  *	Find an interface by name. This can be called from any
@@ -768,7 +768,7 @@ EXPORT_SYMBOL(dev_get_by_index_rcu);
 
 
 /**
- *	dev_get_by_index - find a device by its ifindex
+ *	dev_get_by_index - find a device by its ifindex 根据网卡索引获取网卡设备
  *	@net: the applicable net namespace
  *	@ifindex: index of device
  *
@@ -827,6 +827,7 @@ retry:
 
 /**
  *	dev_getbyhwaddr_rcu - find a device by its hardware address
+ *  根据MAC获取网卡设备
  *	@net: the applicable net namespace
  *	@type: media type of device
  *	@ha: hardware address
@@ -1683,7 +1684,7 @@ static inline int deliver_skb(struct sk_buff *skb,
 	if (unlikely(skb_orphan_frags(skb, GFP_ATOMIC)))
 		return -ENOMEM;
 	atomic_inc(&skb->users);
-	return pt_prev->func(skb, skb->dev, pt_prev, orig_dev);
+	return pt_prev->func(skb, skb->dev, pt_prev, orig_dev);//调用上层协议的回调函数将数据包传递到上层协议栈,对于ip协议，其回调函数为ip_rcv()
 }
 
 static inline bool skb_loop_sk(struct packet_type *ptype, struct sk_buff *skb)
@@ -2515,6 +2516,11 @@ static inline int skb_needs_linearize(struct sk_buff *skb,
 				!(features & NETIF_F_SG)));
 }
 
+/*
+* dev_hard_start_xmit()将待输出的数据包提交给网络设备的输出接口，完成数据包的输出。通常被dev_queue_xmit()调用
+*/ 
+//走到这里的SKB,通过ip_local_out走到这里,走到这里的SKB在ip_local_out中已经把IP层及其以上各层已经封装完毕。该函数后开始走二层封装
+
 int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 			struct netdev_queue *txq)
 {
@@ -2522,6 +2528,9 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 	int rc = NETDEV_TX_OK;
 	unsigned int skb_len;
 
+	/*
+	 * 如果输出是单个数据包，通常情况下都是输出单独数据包。
+	 */
 	if (likely(!skb->next)) {
 		netdev_features_t features;
 
@@ -2550,13 +2559,19 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 		 */
 		if (skb->encapsulation)
 			features &= dev->hw_enc_features;
+		 /*
+		  * 如果待输出数据包是GSO数据包，但网络设备不支持相应的特性，则调用dev_gso_segment()对
+		  * GSO数据包进行软分割。如果经分割后仍是一个数据包，则直接调用网络设备的hard_start_xmit
+		  * 接口输出数据包。然而，通常一个GSO数据包经软分割，会生成多个链接起来的数据包，如果
+		  * 是这样的话就需跳转到gso标签处，逐个处理数据包。
+		  */
 
 		if (netif_needs_gso(skb, features)) {
 			if (unlikely(dev_gso_segment(skb, features)))
 				goto out_kfree_skb;
 			if (skb->next)
 				goto gso;
-		} else {
+		} else {  
 			if (skb_needs_linearize(skb, features) &&
 			    __skb_linearize(skb))
 				goto out_kfree_skb;
@@ -2564,6 +2579,7 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 			/* If packet is not checksummed and device does not
 			 * support checksumming for this protocol, complete
 			 * checksumming here.
+			 如果数据包没有计算校验和并且网卡不支持
 			 */
 			if (skb->ip_summed == CHECKSUM_PARTIAL) {
 				if (skb->encapsulation)
@@ -2572,6 +2588,7 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 				else
 					skb_set_transport_header(skb,
 						skb_checksum_start_offset(skb));
+				        /*并且网络设备不支持自动填写校验和就要由软件来填写，如果软件填写失败，就丢弃报文*/
 				if (!(features & NETIF_F_ALL_CSUM) &&
 				     skb_checksum_help(skb))
 					goto out_kfree_skb;
@@ -2582,7 +2599,7 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 			dev_queue_xmit_nit(skb, dev);
 
 		skb_len = skb->len;
-		rc = ops->ndo_start_xmit(skb, dev);
+		rc = ops->ndo_start_xmit(skb, dev);//在该函数中封装MAC层
 		trace_net_dev_xmit(skb, rc, dev, skb_len);
 		if (rc == NETDEV_TX_OK)
 			txq_trans_update(txq);
@@ -2600,7 +2617,7 @@ gso:
 			dev_queue_xmit_nit(nskb, dev);
 
 		skb_len = nskb->len;
-		rc = ops->ndo_start_xmit(nskb, dev);
+		rc = ops->ndo_start_xmit(nskb, dev);//调用网卡的发送函数，将数据包发送出去
 		trace_net_dev_xmit(nskb, rc, dev, skb_len);
 		if (unlikely(rc != NETDEV_TX_OK)) {
 			if (rc & ~NETDEV_TX_MASK)
@@ -2615,6 +2632,12 @@ gso:
 	} while (skb->next);
 
 out_kfree_gso_skb:
+	    /*在GSO软件分割报文时，原始skb的destructor 函数被替换成
+          释放一串报文的释放函数，一旦发送失败后
+          保证分割后的一串skb 都能释放掉。
+　　　　　现在一串skb 已经都发送成功了，
+          还原原始skb  的destructor函数，释放原始skb时使用
+        */
 	if (likely(skb->next == NULL)) {
 		skb->destructor = DEV_GSO_CB(skb)->destructor;
 		consume_skb(skb);
@@ -2678,10 +2701,10 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 
 	spin_lock(root_lock);
 	if (unlikely(test_bit(__QDISC_STATE_DEACTIVATED, &q->state))) {
-		kfree_skb(skb);
+		kfree_skb(skb); /*如果队列策略被显示的禁止,就丢弃报文*/
 		rc = NET_XMIT_DROP;
 	} else if ((q->flags & TCQ_F_CAN_BYPASS) && !qdisc_qlen(q) &&
-		   qdisc_run_begin(q)) {
+		   qdisc_run_begin(q)) {/*如果队列策略中没有等待发送的报文，发送该报文*/
 		/*
 		 * This is a work-conserving queue; there are no old skbs
 		 * waiting to be sent out; and the qdisc is not running -
@@ -2697,8 +2720,10 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 				spin_unlock(&q->busylock);
 				contended = false;
 			}
+			 /*如果发送报文返回不为0，表示队列策略队列中还存在等待发送的报文，这时重新调度队列策略*/
 			__qdisc_run(q);
 		} else
+			 /*如果发送报文返回为0，表示发送成功后队列策略中没有等待发送的报文，这时清除队列策略的running 状态*/
 			qdisc_run_end(q);
 
 		rc = NET_XMIT_SUCCESS;
@@ -2780,14 +2805,29 @@ EXPORT_SYMBOL(dev_loopback_xmit);
  *      the BH enable code must have IRQs enabled so that it will not deadlock.
  *          --BLG
  */
-int dev_queue_xmit(struct sk_buff *skb)
+ /*
+  * 设备发送数据包时都需调用该函数，该函数对SKB进行排队，最终由底层设备驱动程序进行传输
+  */
+  /*
+  * 网络接口核心层(TCP/IP的第二层)的统一的发送接口，无论IP，还是ARP协议，以及其它各种底层协议，通过这个函数把要发送的数据
+  * 传递给网络接口核心层
+  * update:
+  * 若支持流量控制，则将待输出的数据包根据规则加入到输出网络队列中排队，并在合适的时机激活网络设备输出软中断，依次将报文从队列中取出通过
+  * 网络设备输出。若不支持流量控制，则直接将数据包从网络设备输出。如果提交失败，则返回相应的错误码，然而返回成功也并不能确保数据包被成功发送，因为有可能
+  * 于拥塞而导致流量控制机制将数据包丢弃。调用dev_queue_xmit()函数输出数据包，前提是必须启用中断，只有启用中断之后才能激活下半部。
+  */
+  //到这里的skb可能有以下三种:支持GSO(FRAGLIST类型的聚合分散I/O数据包, 对于SG类型的聚合分散I/O数据包), 或者是非GSO的SKB，但这里的skb是在ip_finish_output中分片后的skb
+//linux协议栈中提供的报文发送函数有两个，一个是链路层提供给网络层的发包函数dev_queue_xmit()。另一个就是软中断
+//发包函数直接调用的函数sch_direct_xmit()。这两个函数最终都会调用dev_hard_start_xmit（）来发送报文。
+
+ int dev_queue_xmit(struct sk_buff *skb)
 {
 	struct net_device *dev = skb->dev;
 	struct netdev_queue *txq;
 	struct Qdisc *q;
 	int rc = -ENOMEM;
 
-	skb_reset_mac_header(skb);
+	skb_reset_mac_header(skb);//设置数据链路层的头部指针
 
 	/* Disable soft irqs for various locks below. Also
 	 * stops preemption for RCU.
@@ -2796,15 +2836,15 @@ int dev_queue_xmit(struct sk_buff *skb)
 
 	skb_update_prio(skb);
 
-	txq = netdev_pick_tx(dev, skb);
-	q = rcu_dereference_bh(txq->qdisc);
+	txq = netdev_pick_tx(dev, skb);//选择传输队列
+	q = rcu_dereference_bh(txq->qdisc);/*取得发送队列的队列策略*/
 
 #ifdef CONFIG_NET_CLS_ACT
 	skb->tc_verd = SET_TC_AT(skb->tc_verd, AT_EGRESS);
 #endif
 	trace_net_dev_queue(skb);
 	if (q->enqueue) {
-		rc = __dev_xmit_skb(skb, q, dev, txq);
+		rc = __dev_xmit_skb(skb, q, dev, txq);    /*如果队列策略实现了入队操作，就调用__dev_xmit_skb进行发送*/
 		goto out;
 	}
 
@@ -2820,21 +2860,26 @@ int dev_queue_xmit(struct sk_buff *skb)
 	   Check this and shot the lock. It is not prone from deadlocks.
 	   Either shot noqueue qdisc, it is even simpler 8)
 	 */
+
+	/*如果队列策略没有实现入队操作，表明发送队列长度为0,
+     *一般发送队列长度为0 的设备是网络虚拟设备，发送失败
+     *后不需要缓存*/
+    /*如果设备是up 状态，进行报文的发送*/
 	if (dev->flags & IFF_UP) {
 		int cpu = smp_processor_id(); /* ok because BHs are off */
 
-		if (txq->xmit_lock_owner != cpu) {
+		if (txq->xmit_lock_owner != cpu) { /*如果设备的发送队列锁的持有cpu 不是本cpu时*/
 
 			if (__this_cpu_read(xmit_recursion) > RECURSION_LIMIT)
 				goto recursion_alert;
-
+			/*获取发送队列的锁*/
 			HARD_TX_LOCK(dev, txq, cpu);
 
 			if (!netif_xmit_stopped(txq)) {
 				__this_cpu_inc(xmit_recursion);
 				rc = dev_hard_start_xmit(skb, dev, txq);
 				__this_cpu_dec(xmit_recursion);
-				if (dev_xmit_complete(rc)) {
+				if (dev_xmit_complete(rc)) { /*调用 dev_hard_start_xmit发送报文*/
 					HARD_TX_UNLOCK(dev, txq);
 					goto out;
 				}
@@ -3416,9 +3461,33 @@ static bool skb_pfmemalloc_protocol(struct sk_buff *skb)
 	}
 }
 
+/*
+            非NAPI方式                                              NAPI方式(NAPI的napi_struct是自己构造的，该结构上的poll钩子函数也是自己定义的。使用参考:网口收发包以及NAPI_huwei_10_新浪博客.htm)
+
+                                        IRQ
+                                         |
+                  _______________________|_____________________________
+                  |                                                     |
+             netif_rx                                            napi_schedule
+ 上半部           |                                                     | 
+             enqueue_to_backlog                                  __napi_schedule
+                  |                                                     |           
+            skb加入input_pkt_queuem中                           napi_struct加入poll_list中
+            softnet_data->softnet_data->backlog加入poll_list中                                      | 
+                   |____________________________________________________| 
+                                             |
+                                        net_rx_action
+下半部                                       |
+                      _______________________|_____________________________
+                      |                                                     |
+            process_backlog->__netif_receive_skb                驱动poll方法->napi_gro_receive->netif_receive_skb->__netif_receive_skb
+
+*/
+
+
 static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
 {
-	struct packet_type *ptype, *pt_prev;
+	struct packet_type *ptype, *pt_prev;/*数据包类型*/
 	rx_handler_func_t *rx_handler;
 	struct net_device *orig_dev;
 	struct net_device *null_or_dev;
@@ -3436,7 +3505,7 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
 
 	orig_dev = skb->dev;
 
-	skb_reset_network_header(skb);
+	skb_reset_network_header(skb);//重置network header，此时skb已经指向IP头（没有vlan的情况下）
 	if (!skb_transport_header_was_set(skb))
 		skb_reset_transport_header(skb);
 	skb_reset_mac_len(skb);
@@ -3444,13 +3513,14 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
 	pt_prev = NULL;
 
 another_round:
-	skb->skb_iif = skb->dev->ifindex;
+	skb->skb_iif = skb->dev->ifindex;/*网卡索引*/
 
 	__this_cpu_inc(softnet_data.processed);
 
+	//vxlan报文处理，剥除vxlan头
 	if (skb->protocol == cpu_to_be16(ETH_P_8021Q) ||
 	    skb->protocol == cpu_to_be16(ETH_P_8021AD)) {
-		skb = vlan_untag(skb);
+		skb = vlan_untag(skb);//剥除vlan头
 		if (unlikely(!skb))
 			goto out;
 	}
@@ -3463,12 +3533,12 @@ another_round:
 #endif
 
 	if (pfmemalloc)
-		goto skip_taps;
+		goto skip_taps; //此类报文不允许ptype_all处理，即tcpdump也抓不到
 
-	list_for_each_entry_rcu(ptype, &ptype_all, list) {
+	list_for_each_entry_rcu(ptype, &ptype_all, list) { ////在net_dev_init中初始化,遍历ptype_all，如果有则做相应处理，例如raw socket和tcpdump实现
 		if (!ptype->dev || ptype->dev == skb->dev) {
 			if (pt_prev)
-				ret = deliver_skb(skb, pt_prev, orig_dev);
+				ret = deliver_skb(skb, pt_prev, orig_dev);//
 			pt_prev = ptype;
 		}
 	}
@@ -3489,19 +3559,27 @@ ncls:
 			ret = deliver_skb(skb, pt_prev, orig_dev);
 			pt_prev = NULL;
 		}
-		if (vlan_do_receive(&skb))
-			goto another_round;
+		if (vlan_do_receive(&skb))// 根据vlan id设置skb的dev 为vlan dev等
+			goto another_round; // 重新进入协议栈，再遍历一次各种注册的协议就会运行ip协议层函数处理了
 		else if (unlikely(!skb))
 			goto out;
 	}
 
-	rx_handler = rcu_dereference(skb->dev->rx_handler);
+	rx_handler = rcu_dereference(skb->dev->rx_handler);//网桥设备数据包接收回调函数rx_handler，如创建OVS网桥时会注册为OVS的入口函数，为netdev_frame_hook()
+														//创建Linux 网桥设备时，对应的回调函数为br_handle_frame()
+
+/* 对于Linux网桥若编译内核时选上BRIDGE，会执行Linux网桥模块
+ skb->dev->rx_handler = br_handle_frame; 所以实际函数 br_handle_frame。注意：在此网桥模块里初始化 skb->pkt_type 为 PACKET_HOST、PACKET_OTHERHOST
+ 见函数br_init。
+ 对于ovs网桥 skb->dev->rx_handler = netdev_frame_hook
+*/
+
 	if (rx_handler) {
 		if (pt_prev) {
 			ret = deliver_skb(skb, pt_prev, orig_dev);
 			pt_prev = NULL;
 		}
-		switch (rx_handler(&skb)) {
+		switch (rx_handler(&skb)) {//交给rx_handler处理，例如OVS、linux bridge等；
 		case RX_HANDLER_CONSUMED:
 			ret = NET_RX_SUCCESS;
 			goto out;
@@ -3529,7 +3607,23 @@ ncls:
 	/* deliver only exact match when indicated */
 	null_or_dev = deliver_exact ? skb->dev : NULL;
 
-	type = skb->protocol;
+
+    /*
+    最后 type = skb->protocol; &ptype_base[ntohs(type)&15]处理ptype_base[ntohs(type)&15]上的所有的 packet_type->func()
+    根据第二层不同协议来进入不同的钩子函数，重要的有：ip_rcv() arp_rcv() ip_recv见inet_init里面的dev_add_pack(&ip_packet_type);
+    */
+    /*
+	常见以太网类型对应的处理函数
+	net/ipv4/af_inet.c:  dev_add_pack(&ip_packet_type);     //ETH_P_IP       ip_rcv
+	net/ipv4/arp.c:    dev_add_pack(&arp_packet_type);      //ETH_P_ARP       arp_rcv
+	net/ipv4/ipconfig.c:  dev_add_pack(&rarp_packet_type);  //ETH_P_RARP      ic_rarp_recv
+	net/ipv4/ipconfig.c:  dev_add_pack(&bootp_packet_type); //ETH_P_IP        ic_bootp_recv
+	net/llc/llc_core.c: dev_add_pack(&llc_packet_type);     //ETH_P_802_2     llc_rcv
+	net/llc/llc_core.c: dev_add_pack(&llc_tr_packet_type);  //ETH_P_TR_802_2  llc_rcv
+	net/x25/af_x25.c:  dev_add_pack(&x25_packet_type);      //ETH_P_X25      x25_lapb_receive_frame
+	net/8021q/vlan.c:  dev_add_pack(&vlan_packet_type);     //ETH_P_8021Q     vlan_skb_recv
+   */
+	type = skb->protocol;////skb->protocol用来表示此SKB包含的数据所支持的L3层协议是什么. 如ox0800代表IP，0x0806代表ARP 在驱动程序中已经获取了该值
 	list_for_each_entry_rcu(ptype,
 			&ptype_base[ntohs(type) & PTYPE_HASH_MASK], list) {
 		if (ptype->type == type &&
@@ -3545,7 +3639,7 @@ ncls:
 		if (unlikely(skb_orphan_frags(skb, GFP_ATOMIC)))
 			goto drop;
 		else
-			ret = pt_prev->func(skb, skb->dev, pt_prev, orig_dev);
+			ret = pt_prev->func(skb, skb->dev, pt_prev, orig_dev);//ptype_base处理，交给协议栈处理，例如ip、arp、rarp等；
 	} else {
 drop:
 		atomic_long_inc(&skb->dev->rx_dropped);
@@ -3559,6 +3653,8 @@ drop:
 out:
 	return ret;
 }
+
+
 
 static int __netif_receive_skb(struct sk_buff *skb)
 {
@@ -3600,6 +3696,41 @@ static int __netif_receive_skb(struct sk_buff *skb)
  *	NET_RX_SUCCESS: no congestion
  *	NET_RX_DROP: packet was dropped
  */
+
+//netif_receive_skb是链路层接收数据报的最后一站。它根据注册在全局数组ptype_all和ptype_base里的网络层数据报类型，把数据报递交给不同的网络层协议的接收函数(INET域中主要是ip_rcv和arp_rcv)。
+/*
+在netif_receive_skb()函数中，可以看出处理的是像ARP、IP这些链路层以上的协议，那么，链路层报头是在哪里去掉的呢？答案是网卡驱动中，在调用netif_receive_skb()前。
+接收数据包的下半部处理流程为：
+net_rx_action // 软中断
+    |--> process_backlog() // 默认poll
+               |--> __netif_receive_skb() // L2处理函数
+                            |--> ip_rcv() // L3入口
+
+*/
+
+/*
+            非NAPI方式                                              NAPI方式(NAPI的napi_struct是自己构造的，该结构上的poll钩子函数也是自己定义的。使用参考:网口收发包以及NAPI_huwei_10_新浪博客.htm)
+
+                                        IRQ
+                                         |
+                  _______________________|_____________________________
+                  |                                                     |
+             netif_rx                                            napi_schedule
+ 上半部           |                                                     | 
+             enqueue_to_backlog                                  __napi_schedule
+                  |                                                     |           
+            skb加入input_pkt_queuem中                           napi_struct加入poll_list中
+            softnet_data->backlog加入poll_list中                                      | 
+                   |____________________________________________________| 
+                                             |
+                                        net_rx_action
+下半部                                       |
+                      _______________________|_____________________________
+                      |                                                     |
+            porcess_backlog->__netif_receive_skb                驱动poll方法->napi_gro_receive->netif_receive_skb->__netif_receive_skb
+
+*/
+
 int netif_receive_skb(struct sk_buff *skb)
 {
 	int ret;
@@ -3614,7 +3745,7 @@ int netif_receive_skb(struct sk_buff *skb)
 #ifdef CONFIG_RPS
 	if (static_key_false(&rps_needed)) {
 		struct rps_dev_flow voidflow, *rflow = &voidflow;
-		int cpu = get_rps_cpu(skb->dev, skb, &rflow);
+		int cpu = get_rps_cpu(skb->dev, skb, &rflow);//获取当前skb的cpu队列
 
 		if (cpu >= 0) {
 			ret = enqueue_to_backlog(skb, cpu, &rflow->last_qtail);
@@ -3879,6 +4010,28 @@ static void skb_gro_reset_offset(struct sk_buff *skb)
 	}
 }
 
+/*
+            非NAPI方式                                              NAPI方式
+
+                                        IRQ
+                                         |
+                  _______________________|_____________________________
+                  |                                                     |
+             netif_rx                                            napi_schedule
+ 上半部           |                                                     | 
+             enqueue_to_backlog                                  __napi_schedule
+                  |                                                     |           
+            skb加入input_pkt_queuem中                           napi_struct加入poll_list中
+            backlog加入poll_list中                                      | 
+                   |____________________________________________________| 
+                                             |
+                                        net_rx_action
+下半部                                       |
+                      _______________________|_____________________________
+                      |                                                     |
+            porcess_backlog->__netif_receive_skb                驱动poll方法->napi_gro_receive->netif_receive_skb->__netif_receive_skb
+
+*/
 gro_result_t napi_gro_receive(struct napi_struct *napi, struct sk_buff *skb)
 {
 	skb_gro_reset_offset(skb);
@@ -6284,17 +6437,40 @@ static struct pernet_operations __net_initdata default_device_ops = {
  *       This is called single threaded during boot, so no need
  *       to take the rtnl semaphore.
  */
+
+/*
+  * 设备处理层的初始化函数.
+  * 在系统启动时，net_dev_init()的初始化优先级
+  * 是subsys_initcall，用来初始化相关
+  * 接口层，如注册记录相关统计信息的proc
+  * 文件，初始化每个CPU的softnet_data，注册网络
+  * 报文输入/输出软中断以及处理例程，注册
+  * 响应CPU状态变化的回调函数等。
+  */
+/*
+ *       This is called single threaded during boot, so no need
+ *       to take the rtnl semaphore.
+ *///设备物理层的初始化net_dev_init
+ //TCP/IP协议栈初始化inet_init  其实传输层的协议初始化也在这里面
+ //传输层初始化proto_init
+ //套接口层初始化sock_init   netfilter_init在套接口层初始化的时候也初始化了
+
 static int __init net_dev_init(void)
 {
 	int i, rc = -ENOMEM;
 
 	BUG_ON(!dev_boot_phase);
 
-	if (dev_proc_init())
+	if (dev_proc_init())//注册/proc/net/dev和/proc/net/softnet_stat文件，只读文件，存放一些网络设备状态和统计信息
 		goto out;
 
-	if (netdev_kobject_init())
+	if (netdev_kobject_init())//netdev_kobject_init会创建/sys/class/net目录，在此目录下，每个已注册的网络设备都会有一个子目录。例如ifconfig里面的eth0信息都可以在这里面查看
 		goto out;
+
+    /*
+	 * 初始化网络处理函数散列表ptype_base。这些处理函数
+	 * 用来处理接收到的不同协议族报文。
+	 */
 
 	INIT_LIST_HEAD(&ptype_all);
 	for (i = 0; i < PTYPE_HASH_SIZE; i++)
@@ -6302,14 +6478,26 @@ static int __init net_dev_init(void)
 
 	INIT_LIST_HEAD(&offload_base);
 
+    /*
+	  * 注册在net命名空间的初始化和退出操作。
+	  * netdev_net_ops中会分别初始化以名称和索引
+	  * 为查找的链表
+	  */
+
 	if (register_pernet_subsys(&netdev_net_ops))
 		goto out;
 
 	/*
 	 *	Initialise the packet receive queues.
 	 */
+		/*
+		 * 初始化与CPU相关的接收队列。
+		 * update:初始化每个CPU的softnet_data，包括
+		 * 完成发送数据包的等待释放队列，以及
+		 * 非NAPI驱动的输入队列、轮询函数
+		 */
 
-	for_each_possible_cpu(i) {
+	for_each_possible_cpu(i) {//初始化与CPU接收相关的队列
 		struct softnet_data *sd = &per_cpu(softnet_data, i);
 
 		memset(sd, 0, sizeof(*sd));
@@ -6332,7 +6520,7 @@ static int __init net_dev_init(void)
 		sd->backlog.gro_count = 0;
 	}
 
-	dev_boot_phase = 0;
+	dev_boot_phase = 0; //标识网络设备初始化已完成
 
 	/* The loopback device is special if any other network devices
 	 * is present in a network namespace the loopback device must
@@ -6343,17 +6531,27 @@ static int __init net_dev_init(void)
 	 * is the first device that appears and the last network device
 	 * that disappears.
 	 */
-	if (register_pernet_device(&loopback_net_ops))
+	if (register_pernet_device(&loopback_net_ops)) //注册网络设备"lo"，ifconfig里面的lo          注册网络命令空间设备，确保loopback设备在所有网络设备中最先出现和最后消失 
 		goto out;
 
 	if (register_pernet_device(&default_device_ops))
 		goto out;
 
-	open_softirq(NET_TX_SOFTIRQ, net_tx_action);
+    /*
+	 * 在软中断系统中注册两个软中断NET_TX_SOFTIRQ和
+	 * NET_RX_SOFTIRQ，用于网络数据的发送和接收。因为
+	 * 软中断的性能比较好，而网络数据的接收和发送
+	 * 对性能要求比较高，因此将软中断作为下半部来
+	 * 使用。
+	 * update:注册网络报文输入/输出软中断及其处理例程。
+	 *///下半部和上半部最大的不同是下半部是可中断的，而上半部是不可中断的，下半部几乎做了中断处理程序所有的事情，而且可以被新的中断打断！下半部则相对来说并不是非常紧急的，通常还是比较耗时的，因此由系统自行安排运行时机，不在中断服务上下文中执行。
+
+	open_softirq(NET_TX_SOFTIRQ, net_tx_action);//注册两个软中断，用于网络数据的发送和接收
 	open_softirq(NET_RX_SOFTIRQ, net_rx_action);
 
 	hotcpu_notifier(dev_cpu_callback, 0);
-	dst_init();
+	
+	dst_init();  //初始化目的路由缓存
 	rc = 0;
 out:
 	return rc;
