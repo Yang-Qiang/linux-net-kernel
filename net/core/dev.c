@@ -140,8 +140,25 @@
 
 static DEFINE_SPINLOCK(ptype_lock);
 static DEFINE_SPINLOCK(offload_lock);
+/*
+混杂模式（Promiscuous Mode）是指一台机器能够接收所有经过它的数据流，而不论其目的地址是否是他。是相对于通常模式（又称“非混杂模式”）而言的。
+这被网络管理员使用来诊断网络问题，但是也被无认证的想偷听网络通信（其可能包括密码和其它敏感的信息）的人利用。一个非路由选择节点在混杂模式下
+一般仅能够在相同的冲突域（对以太网和无线局域网）内监控通信到和来自其它节点或环（对令牌环或FDDI），其是为什么网络交换被用于对抗恶意的混杂模式。　　
+混杂模式就是接收所有经过网卡的数据包，包括不是发给本机的包。默认情况下网卡只把发给本机的包（包括广播包）传递给上层程序，其它的包一律丢弃。
+简单的讲,混杂模式就是指网卡能接受所有通过它的数据流，不管是什么格式，什么地址的。事实上，计算机收到数据包后，由网络层进行判断，确定是递
+交上层（传输层），还是丢弃，还是递交下层（数据链路层、MAC子层）转发。　　通常在需要用到抓包工具，例如ethereal、sniffer时，需要把网卡置于混杂模式，需要用
+到软件Winpcap。winpcap是windows平台下一个免费，公共的网络访问系统。开发winpcap这个项目的目的
+在于为win32应用程序提供访问网络底层的能力，Linux平台为libpcap。
+po->prot_hook.func = packet_rcv;
+
+if (sock->type == SOCK_PACKET)
+	po->prot_hook.func = packet_rcv_spkt;
+
+ETH_P_ALL的注册在packet_create中，该函数是通过应用层的函数nSock == socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))系统调用的。ptype_all 链，这些为注册到内核的一些 sniffer，将上传给这些sniffer，另一个就是遍历 ptype_base，这个就是具体的协议类型
+*/ 
+//接收见__netif_receive_skb，发送见dev_queue_xmit_nit
 struct list_head ptype_base[PTYPE_HASH_SIZE] __read_mostly;
-struct list_head ptype_all __read_mostly;	/* Taps */
+struct list_head ptype_all __read_mostly;	/* Taps */ //在net_dev_init中初始化
 static struct list_head offload_base __read_mostly;
 
 /*
@@ -371,6 +388,13 @@ static inline struct list_head *ptype_head(const struct packet_type *pt)
  *	guarantee all CPU's that are in middle of receiving packets
  *	will see the new packet type (until the next received packet).
  */
+	/*
+	混杂模式（Promiscuous Mode）是指一台机器能够接收所有经过它的数据流，而不论其目的地址是否是他。是相对于通常模式（又称“非混杂模式”）而言的。
+	这被网络管理员使用来诊断网络问题，但是也被无认证的想偷听网络通信（其可能包括密码和其它敏感的信息）的人利用。一个非路由选择节点在混杂模式下
+	一般仅能够在相同的冲突域（对以太网和无线局域网）内监控通信到和来自其它节点或环（对令牌环或FDDI），其是为什么网络交换被用于对抗恶意的混杂模式。　　混杂模式就是接收所有经过网卡的数据包，包括不是发给本机的包。默认情况下网卡只把发给本机的包（包括广播包）传递给上层程序，其它的包一律丢弃。简单的讲,混杂模式就是指网卡能接受所有通过它的数据流，不管是什么格式，什么地址的。事实上，计算机收到数据包后，由网络层进行判断，确定是递交上层（传输层），还是丢弃，还是递交下层（数据链路层、MAC子层）转发。　　通常在需要用到抓包工具，例如ethereal、sniffer时，需要把网卡置于混杂模式，需要用到软件Winpcap。winpcap是windows平台下一个免费，公共的网络访问系统。开发winpcap这个项目的目的在于为win32应用程序提供访问网络底层的能力。
+	
+	ETH_P_ALL的注册在packet_create中，该函数是通过应用层的函数nSock == socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))系统调用的。ptype_all 链，这些为注册到内核的一些 sniffer，将上传给这些sniffer，另一个就是遍历 ptype_base，这个就是具体的协议类型
+	*/
 
 void dev_add_pack(struct packet_type *pt)
 {
@@ -792,7 +816,7 @@ struct net_device *dev_get_by_index(struct net *net, int ifindex)
 EXPORT_SYMBOL(dev_get_by_index);
 
 /**
- *	netdev_get_name - get a netdevice name, knowing its ifindex.
+ *	netdev_get_name - get a netdevice name, knowing its ifindex.根据网卡名获取网卡设备，需要知道网卡索引
  *	@net: network namespace
  *	@name: a pointer to the buffer where the name will be stored.
  *	@ifindex: the ifindex of the interface to get the name from.
@@ -918,6 +942,7 @@ EXPORT_SYMBOL(dev_get_by_flags_rcu);
  *	to allow sysfs to work.  We also disallow any kind of
  *	whitespace.
  */
+  //检查网络设备名是否有效
 bool dev_valid_name(const char *name)
 {
 	if (*name == '\0')
@@ -1226,6 +1251,10 @@ static int __dev_open(struct net_device *dev)
 
 	ASSERT_RTNL();
 
+	/*
+	  * 如果网络设备已经挂起，则不能被激活。
+	  */
+
 	if (!netif_device_present(dev))
 		return -ENODEV;
 
@@ -1241,6 +1270,10 @@ static int __dev_open(struct net_device *dev)
 	ret = notifier_to_errno(ret);
 	if (ret)
 		return ret;
+	/*
+	  * 设备网络设备的启用状态标志。如果实现open函数，则根据具体硬件注册
+	  * 系统资源，使能硬件，并对设备作其他的一些设置。
+	  */
 
 	set_bit(__LINK_STATE_START, &dev->state);
 
@@ -1277,6 +1310,12 @@ static int __dev_open(struct net_device *dev)
  *	Calling this function on an active interface is a nop. On a failure
  *	a negative errno code is returned.
  */
+ /*
+  * 设备一旦注册后即可使用，但必须在用户或用户空间应用程序使能后才可以收发数据因为注册到系统中的网络设备，其初始
+  * 状态是关闭的，此时是不能传输数据的，必须激活后，网络设备才能进行数据的传输。在应用层，可以通过ifconfig up命令(最终是通过ioctl
+  * 的SIOCSIFFLAGS)来激活网络设备。而SIOCIFFLAGS命令是通过dev_change_flags()调用dev_open()来激活网络设备。
+  * dev_open()将网络设备从关闭状态转到激活状态
+  */
 int dev_open(struct net_device *dev)
 {
 	int ret;
@@ -1386,6 +1425,13 @@ static int dev_close_many(struct list_head *head)
  *	is then deactivated and finally a %NETDEV_DOWN is sent to the notifier
  *	chain.
  */
+ /*
+  * 网络设备一旦关闭后就不能传输数据了。网络设备能被用户命令明确地活被其他事件隐含地
+  * 禁止。在应用层，可以通过ifconfig down命令(最终是通过ioctl()的SIOCSIFFLAGS)来关闭网络设备，或者
+  * 在网络设备注销时被禁止。SIOCSIFFLAGS命令通过dev_change_flags()，根据网络设备
+  * 当前的状态来确定调用dev_close()关闭网络设备。dev_close()将网络设备从激活状态转换到关闭状态
+  *卸载模块的时候也会调用该函数
+  */
 int dev_close(struct net_device *dev)
 {
 	int ret = 0;
@@ -1646,6 +1692,7 @@ static inline bool is_skb_forwardable(struct net_device *dev,
  * we have to clear all information in the skb that could
  * impact namespace isolation.
  */
+ /*虚拟网络设备veth之间发送数据包会调用该函数*/
 int dev_forward_skb(struct net_device *dev, struct sk_buff *skb)
 {
 	if (skb_shinfo(skb)->tx_flags & SKBTX_DEV_ZEROCOPY) {
@@ -1704,6 +1751,14 @@ static inline bool skb_loop_sk(struct packet_type *ptype, struct sk_buff *skb)
  *	Support routine. Sends outgoing frames to any network
  *	taps currently in use.
  */
+/*
+  * 对于通过socket(AF_PACKET， SOCK_RAW，htons(ETH_P_ALL))创建的原始套接字，不但可以接收从外部输入的数据包，而且对于由本地输出的数据包，如果满足条件，也同样
+  * 可以接收。dev_queue_xmit_nit()就是用来接收由本地输出的数据包，在链路层的输出过程中，会调用此函数，将满足条件的数据包输入
+  * 到RAW套接字。
+  * @skb:待输出的数据包，如果满足条件，则输入到原始套接字
+  * @dev:输出数据包的网络设备，如果满足条件，则从该网络设备输入到原始套接字
+  * 如libpcap抓包程序就会通过socket(AF_PACKET， SOCK_RAW，htons(ETH_P_ALL))创建原始套接字，获取主机往外发送的数据包。
+  */
 
 static void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 {
@@ -1711,11 +1766,23 @@ static void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 	struct sk_buff *skb2 = NULL;
 	struct packet_type *pt_prev = NULL;
 
-	rcu_read_lock();
+	rcu_read_lock();	
+	/*
+	  * 遍历ptype_all链表，查找所有符合输入条件的
+	  * 原始套接字，并循环将数据包输入到满足条件
+	  * 的套接字
+	  */
 	list_for_each_entry_rcu(ptype, &ptype_all, list) {
 		/* Never send packets back to the socket
 		 * they originated from - MvS (miquels@drinkel.ow.org)
 		 */
+	/*
+	  * 数据包的输出设备与套接字的输入设备相符或者套接字不指定输入设备，并且该数据包
+	  * 不是由当前用于比较的套接字输出的(由原始套接字输出的数据包不会再次输入给自己)，
+	  * 此时该原始套接字满足条件，数据包可以输入
+	  */ 
+	  /*注意这里并没有要求ptype->type == type，所以接收到的包只要有注册ETH_P_ALL协议，所有的包都会走到deliver_skb*/
+
 		if ((ptype->dev == dev || !ptype->dev) &&
 		    (!skb_loop_sk(ptype, skb))) {
 			if (pt_prev) {
@@ -1723,7 +1790,9 @@ static void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 				pt_prev = ptype;
 				continue;
 			}
-
+			/*
+			 * 由于该数据包时额外输入到这个原始套接字的，因此需要克隆一个数据包。
+			 */
 			skb2 = skb_clone(skb, GFP_ATOMIC);
 			if (!skb2)
 				break;
@@ -1743,7 +1812,8 @@ static void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 						     dev->name);
 				skb_reset_network_header(skb2);
 			}
-
+				
+		  //将数据包输入到原始套接字
 			skb2->transport_header = skb2->network_header;
 			skb2->pkt_type = PACKET_OUTGOING;
 			pt_prev = ptype;
@@ -2434,6 +2504,12 @@ static void dev_gso_skb_destructor(struct sk_buff *skb)
  *	This function segments the given skb and stores the list of segments
  *	in skb->next.
  */
+ /*
+ * skb_gso_segment()的作用是分段GSO段，返回通过skb->next链接在一起
+ * 的段，如果返回NULL，则表示GSO段没有进行分段，参数说明如下：
+ * @skb，待分割的GSO数据包
+ * @features，输出网络设备支持的GSO特性
+ */
 static int dev_gso_segment(struct sk_buff *skb, netdev_features_t features)
 {
 	struct sk_buff *segs;
@@ -2925,7 +3001,8 @@ static inline void ____napi_schedule(struct softnet_data *sd,
 				     struct napi_struct *napi)
 {
 	list_add_tail(&napi->poll_list, &sd->poll_list);
-	__raise_softirq_irqoff(NET_RX_SOFTIRQ);
+	__raise_softirq_irqoff(NET_RX_SOFTIRQ);//将触发一个类型为NET_RX_SOFTIRQ的软中断，由do_softirq()函数执行这个软中断
+	                                       //对于NET_RX_SOFTIRQ类型的软中断来说，系统将其action注册为net_rx_action
 }
 
 #ifdef CONFIG_RPS
@@ -3153,6 +3230,34 @@ static int rps_ipi_queued(struct softnet_data *sd)
  * enqueue_to_backlog is called to queue an skb to a per CPU backlog
  * queue (may be a remote CPU queue).
  */
+
+/* 队列中.在中断轮询的时候,软中断总函数do_softirq()直接到达网卡的接收软中断函数net_rx_action()，
+   在此函数中调用queue->backlog_dev.poll=process_backlog;即process_backlog()函数，它将queue->input_pkt_queue
+   队列中的数据向上层协议传输，比如网络层的ip协议等。
+*/
+/*
+            非NAPI方式    NAPI方式NAPI方式(NAPI的napi_struct是自己构造的，该结构上的poll钩子函数也是自己定义的。)
+
+(从上往下)                                  IRQ
+                                         |
+                  _______________________|_____________________________
+                  |                                                     |
+             netif_rx                                            napi_schedule
+ 上半部           |                                                     | 
+             enqueue_to_backlog                                  __napi_schedule
+                  |                                                     |           
+            skb加入input_pkt_queuem中                           napi_struct加入poll_list中
+            softnet_data->backlog加入poll_list中                                      | 
+                   |____________________________________________________| 
+                                             |
+                                        net_rx_action
+下半部                                       |
+                      _______________________|_____________________________
+                      |                                                     |
+            porcess_backlog->__netif_receive_skb                驱动poll方法->napi_gro_receive->netif_receive_skb->__netif_receive_skb
+
+*/
+//通过硬件中断接收SKB，然后在硬件中断中继续执行下面的函数。
 static int enqueue_to_backlog(struct sk_buff *skb, int cpu,
 			      unsigned int *qtail)
 {
@@ -3161,16 +3266,20 @@ static int enqueue_to_backlog(struct sk_buff *skb, int cpu,
 
 	sd = &per_cpu(softnet_data, cpu);
 
-	local_irq_save(flags);
+	local_irq_save(flags);//关中断，当该SKB添加到输入队列input_pkt_queue后打开中断，继续从硬件中断中接收输入然后放入该接收队列中
 
 	rps_lock(sd);
 	if (skb_queue_len(&sd->input_pkt_queue) <= netdev_max_backlog) {
 		if (skb_queue_len(&sd->input_pkt_queue)) {
 enqueue:
+  /* 队列中.在中断轮询的时候,软中断总函数do_softirq()直接到达网卡的接收软中断函数net_rx_action()，
+     在此函数中调用queue->backlog_dev.poll=process_backlog;即默认的process_backlog()函数，它将queue->input_pkt_queue
+     队列中的数据向上层协议传输，比如网络层的ip协议等。如果去掉自己实现了poll方法，则调用驱动自己的poll方法
+   */
 			__skb_queue_tail(&sd->input_pkt_queue, skb);
 			input_queue_tail_incr_save(sd, qtail);
 			rps_unlock(sd);
-			local_irq_restore(flags);
+			local_irq_restore(flags);//打开中断，当该SKB添加到输入队列input_pkt_queue后打开中断，继续从硬件中断中接收输入然后放入该接收队列中
 			return NET_RX_SUCCESS;
 		}
 
@@ -3179,7 +3288,7 @@ enqueue:
 		 */
 		if (!__test_and_set_bit(NAPI_STATE_SCHED, &sd->backlog.state)) {
 			if (!rps_ipi_queued(sd))
-				____napi_schedule(sd, &sd->backlog);
+				____napi_schedule(sd, &sd->backlog);//这里就会调用net_dev_init中的->backlog_dev.poll=process_backlog从而到process_backlog中执行
 		}
 		goto enqueue;
 	}
@@ -3208,6 +3317,37 @@ enqueue:
  *	NET_RX_DROP     (packet was dropped)
  *
  */
+  //当底层设备驱动程序接收一个报文时，就会通过调用netif_rx将报文的SKB上传至网络层。
+  /*
+  在netif_rx函数中会调用netif_rx_schedule, 然后该函数又会去调用__netif_rx_schedule
+  在函数__netif_rx_schedule中会去触发软中断NET_RX_SOFTIRQ, 也即是去调用net_rx_action.
+  然后在net_rx_action函数中会去调用设备的poll函数, 它是设备自己注册的.
+  在设备的poll函数中, 会去调用netif_receive_skb函数,  在该函数中有下面一条语句 pt_prev->func, 此处的func为一个函数指针, 在之前的注册中设置为ip_rcv.
+  因此, 就完成了从链路层上传到网络层的这一个过程了.
+  */ //非NAPI方式，从驱动硬件中断中调用这个netif_rx函数，而NAPI方式从硬件中断中调用napi_schedule激活软中断, 参考 数据包接收系列 — NAPI的原理和实现 http://blog.csdn.net/zhangskd/article/details/21627963
+  
+  /*
+			  非NAPI方式 											 NAPI方式NAPI方式(NAPI的napi_struct是自己构造的，该结构上的poll钩子函数也是自己定义的。使用参考:网口收发包以及NAPI_huwei_10_新浪博客.htm)
+  
+										  IRQ
+										   |
+					_______________________|_____________________________
+					|													  |
+			   netif_rx 										   napi_schedule
+   上半部		   |													 | 
+			   enqueue_to_backlog								   __napi_schedule
+					|													  | 		  
+			  skb加入input_pkt_queuem中							 napi_struct加入poll_list中
+			  softnet_data->backlog加入poll_list中									   | 
+					 |____________________________________________________| 
+											   |
+										  net_rx_action
+  下半部 									  |
+						_______________________|_____________________________
+						|													  |
+ (非NAPI)process_backlog->__netif_receive_skb				  (非NAPI)驱动自己实现的poll方法->napi_gro_receive->netif_receive_skb->__netif_receive_skb
+  
+  */
 
 int netif_rx(struct sk_buff *skb)
 {
@@ -3480,7 +3620,7 @@ static bool skb_pfmemalloc_protocol(struct sk_buff *skb)
 下半部                                       |
                       _______________________|_____________________________
                       |                                                     |
-            process_backlog->__netif_receive_skb                驱动poll方法->napi_gro_receive->netif_receive_skb->__netif_receive_skb
+       (非NAPI)  process_backlog->__netif_receive_skb          (NAPI)驱动实现的poll方法->napi_gro_receive->netif_receive_skb->__netif_receive_skb
 
 */
 
@@ -4190,7 +4330,7 @@ static int process_backlog(struct napi_struct *napi, int quota)
 		while ((skb = __skb_dequeue(&sd->process_queue))) {
 			rcu_read_lock();
 			local_irq_enable();
-			__netif_receive_skb(skb);
+			__netif_receive_skb(skb);//netif_receive_skb的调用就在这里了
 			rcu_read_unlock();
 			local_irq_disable();
 			input_queue_head_incr(sd);
@@ -4311,14 +4451,26 @@ void netif_napi_del(struct napi_struct *napi)
 }
 EXPORT_SYMBOL(netif_napi_del);
 
+/*
+不配置NAPI的时候，网络设备不使用自己的napi_struct结构，
+所有网络设备驱动都使用同一个napi_struct(默认的),即cpu私有变量__get_cpu_var(softnet_data).backlog
+每当收到数据包时，网络设备驱动会把__get_cpu_var(softnet_data).backlog挂到__get_cpu_var(softnet_data).poll_list上面。
+所以软中断里net_rx_action遍历cpu私有变量__get_cpu_var(softnet_data).poll_list时，
+上面挂的napi_struct只有一个
+*/
+//不管NAPI还是非NAPI最终都调用net_rx_action
 static void net_rx_action(struct softirq_action *h)
 {
 	struct softnet_data *sd = &__get_cpu_var(softnet_data);
-	unsigned long time_limit = jiffies + 2;
-	int budget = netdev_budget;
+	unsigned long time_limit = jiffies + 2;/*设置软中断处理程序一次允许的最大执行时间为2个jiffies*/
+	int budget = netdev_budget; /*设置软中断接收函数一次最多处理的报文个数为 300 */
 	void *have;
 
 	local_irq_disable();
+    /*  
+    NAPI的napi_struct是自己构造的，该结构上的poll钩子函数也是自己定义的。
+    非NAPI的napi_struct结构是默认的，也就是per cpu的softnet_data>backlog，起poll钩子函数为process_backlog
+    */
 
 	while (!list_empty(&sd->poll_list)) {
 		struct napi_struct *n;
@@ -4328,21 +4480,27 @@ static void net_rx_action(struct softirq_action *h)
 		 * Allow this to run for 2 jiffies since which will allow
 		 * an average latency of 1.5/HZ.
 		 */
+         /*如果处理报文超出一次处理最大的个数 或允许时间超过最大时间就停止执行，           
+         跳到softnet_break 处*/
 		if (unlikely(budget <= 0 || time_after_eq(jiffies, time_limit)))
 			goto softnet_break;
 
 		local_irq_enable();
+		/*使能本地中断，上面判断list为空已完成，下面调用NAPI的轮询函数是在硬中断开启的情况下执行*/
 
 		/* Even though interrupts have been re-enabled, this
 		 * access is safe because interrupts can only add new
 		 * entries to the tail of this list, and only ->poll()
 		 * calls can remove this head entry from the list.
 		 */
+/* 取得softnet_data pool_list 链表上的一个napi,        即使现在硬中断抢占软中断，会把一个napi挂到pool_list的尾端            
+   软中断只会从pool_list 头部移除一个pool_list，这样不存在临界区
+*/
 		n = list_first_entry(&sd->poll_list, struct napi_struct, poll_list);
 
 		have = netpoll_poll_lock(n);
 
-		weight = n->weight;
+		weight = n->weight;/*用weighr 记录napi 一次轮询允许处理的最大报文数*/
 
 		/* This NAPI_STATE_SCHED test is for avoiding a race
 		 * with netpoll's poll_napi().  Only the entity which
@@ -4350,6 +4508,10 @@ static void net_rx_action(struct softirq_action *h)
 		 * actually make the ->poll() call.  Therefore we avoid
 		 * accidentally calling ->poll() when NAPI is not scheduled.
 		 */
+/*  
+NAPI的napi_struct是自己构造的，该结构上的poll钩子函数也是自己定义的。
+非NAPI的napi_struct结构是默认的，也就是per cpu的softnet_data>backlog，poll钩子函数为process_backlog
+*/
 		work = 0;
 		if (test_bit(NAPI_STATE_SCHED, &n->state)) {
 			work = n->poll(n, weight);
@@ -4367,6 +4529,7 @@ static void net_rx_action(struct softirq_action *h)
 		 * still "owns" the NAPI instance and therefore can
 		 * move the instance around on the list at-will.
 		 */
+		/*如果napi 一次轮询处理的报文数正好等于允许处理的最大数,说明一次轮询没处理完全部需要处理的报文*/
 		if (unlikely(work == weight)) {
 			if (unlikely(napi_disable_pending(n))) {
 				local_irq_enable();
@@ -4381,13 +4544,15 @@ static void net_rx_action(struct softirq_action *h)
 					napi_gro_flush(n, HZ >= 1000);
 					local_irq_disable();
 				}
-				list_move_tail(&n->poll_list, &sd->poll_list);
+				list_move_tail(&n->poll_list, &sd->poll_list);/*否则，把napi 移到 pool_list 的尾端*/
 			}
 		}
 
 		netpoll_poll_unlock(have);
 	}
 out:
+/*如果处理时间超时，或处理的报文数到了最多允许处理的个数，说明还有napi 上有报文需要处理，调度软中断。否则，
+说明这次软中断处理完全部的napi上的需要处理的报文，不再需要调度软中断了*/
 	net_rps_action_and_irq_enable(sd);
 
 #ifdef CONFIG_NET_DMA
@@ -6514,7 +6679,9 @@ static int __init net_dev_init(void)
 		sd->cpu = i;
 #endif
 
-		sd->backlog.poll = process_backlog;
+		sd->backlog.poll = process_backlog;//中断处理函数net_rx_action调用设备的poll方法（默认为process_backlog），
+		                                   //而process_backlog函数将进一步调用netif_receive_skb()将数据包传上
+		                                   //协议栈，如果设备自身注册了poll函数，也将调用netif_receive_skb()函数
 		sd->backlog.weight = weight_p;
 		sd->backlog.gro_list = NULL;
 		sd->backlog.gro_count = 0;
