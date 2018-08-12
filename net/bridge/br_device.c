@@ -23,6 +23,14 @@
 #include "br_private.h"
 
 /* net device transmit always called with BH disabled */
+/*本机发送报文
+在br_dev_setup接口中初始化了网桥的发送接口为br_dev_xmit，当上层的IP层路由确定某个报文需要通过一个网桥发送时，它会把以太网报文通过这个接口转交给网桥,由网桥设备发送
+这样说，有N个网口eth0, eth1,eth2。。。ethN组成了个网桥叫br0,这个时候br0就拥有了跟这N个网口直接通讯的能力，而且
+br0又被独立抽象出来为一个网络设备，它的名字就叫br0。
+网桥虽然绑定了一个虚拟的网络设备br0,但是在实际意义上却没有完全的驱动程序，不过有一点还是需
+要记住的，就是每个网桥在发送数据包时，网桥代码为它专门开发了一个发送接口br_dev_xmit.这
+个函数赋值给了网卡驱动程序中的hard_start_xmit接口，完成数据的发送，。
+*/
 netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct net_bridge *br = netdev_priv(dev);
@@ -54,9 +62,9 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 	skb_reset_mac_header(skb);
 	skb_pull(skb, ETH_HLEN);
 
-	if (is_broadcast_ether_addr(dest))
+	if (is_broadcast_ether_addr(dest))//广播地址
 		br_flood_deliver(br, skb);
-	else if (is_multicast_ether_addr(dest)) {
+	else if (is_multicast_ether_addr(dest)) {//多播地址
 		if (unlikely(netpoll_tx_running(dev))) {
 			br_flood_deliver(br, skb);
 			goto out;
@@ -71,8 +79,8 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 			br_multicast_deliver(mdst, skb);
 		else
 			br_flood_deliver(br, skb);
-	} else if ((dst = __br_fdb_get(br, dest, vid)) != NULL)
-		br_deliver(dst->dst, skb);
+	} else if ((dst = __br_fdb_get(br, dest, vid)) != NULL)//在转发表中查找成功
+		br_deliver(dst->dst, skb);//发送数据包
 	else
 		br_flood_deliver(br, skb);
 

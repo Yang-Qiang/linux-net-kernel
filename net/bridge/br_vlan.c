@@ -146,6 +146,7 @@ static struct sk_buff *br_vlan_untag(struct sk_buff *skb)
 	return skb;
 }
 
+/*br_handle_vlan 没怎么弄明白*/
 struct sk_buff *br_handle_vlan(struct net_bridge *br,
 			       const struct net_port_vlans *pv,
 			       struct sk_buff *skb)
@@ -160,7 +161,10 @@ struct sk_buff *br_handle_vlan(struct net_bridge *br,
 	 * send untagged; otherwise, send taged.
 	 */
 	br_vlan_get_tag(skb, &vid);
-	if (test_bit(vid, pv->untagged_bitmap))
+	if (test_bit(vid, pv->untagged_bitmap))//出口数据包是否要增加vlan id（tag）在函数br_handle_vlan中进行判断，如果
+											//接口的untagged_bitmap位图中含有vid比特位，说明不要加tag，
+											//清空数据包（skb）的vlan_tci字段，否则保留vlan_tci字段的值。
+											//这种情况是数据包从access口发出或者发往本机的吗？
 		skb = br_vlan_untag(skb);
 	else {
 		/* Egress policy says "send tagged".  If output device
@@ -169,7 +173,7 @@ struct sk_buff *br_handle_vlan(struct net_bridge *br,
 		 * Sending to ports puts the frame on the TX path and
 		 * we let dev_hard_start_xmit() add the header.
 		 */
-		if (skb->protocol != htons(ETH_P_8021Q) &&
+		if (skb->protocol != htons(ETH_P_8021Q) &&//不是802.q协议，则打上vlan tag
 		    pv->port_idx == 0) {
 			/* vlan_put_tag expects skb->data to point to
 			 * mac header.

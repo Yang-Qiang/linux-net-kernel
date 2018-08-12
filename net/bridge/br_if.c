@@ -238,7 +238,7 @@ int br_add_bridge(struct net *net, const char *name)
 	int res;
 
 	dev = alloc_netdev(sizeof(struct net_bridge), name,
-			   br_dev_setup);
+			   br_dev_setup);//为网桥抽象
 
 	if (!dev)
 		return -ENOMEM;
@@ -322,6 +322,7 @@ netdev_features_t br_features_recompute(struct net_bridge *br,
 }
 
 /* called with RTNL */
+/*add interface to bridge 添加一个网络接口到网桥，因为网桥br0初始时抽象出了一个网络接口br0，因此不能把br0添加到网桥br0 */
 int br_add_if(struct net_bridge *br, struct net_device *dev)
 {
 	struct net_bridge_port *p;
@@ -335,6 +336,7 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 		return -EINVAL;
 
 	/* No bridging of bridges */
+	/*接口不能是网桥br0初始化时抽象出现出来的网络设备br0*/
 	if (dev->netdev_ops->ndo_start_xmit == br_dev_xmit)
 		return -ELOOP;
 
@@ -372,7 +374,9 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	if (err)
 		goto err4;
 
-	err = netdev_rx_handler_register(dev, br_handle_frame, p);
+	err = netdev_rx_handler_register(dev, br_handle_frame, p);//绑定网桥设备数据包接收回调函数rx_handler，当接口接收到数据包时
+															  //如果开启了网桥模块，则br_handle_frame被调用
+															  //网桥的抽象设备br0的rx_handler为NULL
 	if (err)
 		goto err5;
 

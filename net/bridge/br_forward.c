@@ -40,6 +40,16 @@ static inline unsigned int packet_length(const struct sk_buff *skb)
 	return skb->len - (skb->protocol == htons(ETH_P_8021Q) ? VLAN_HLEN : 0);
 }
 
+/*
+桥网卡设备的hard_start_xmit()函数定义为:
+void br_dev_setup(struct net_device *dev)
+{
+......
+ dev->hard_start_xmit = br_dev_xmit;
+ 3.10版本：opt->ndo_start_xmit = br_dev_xmit;
+......
+}*/
+
 int br_dev_queue_push_xmit(struct sk_buff *skb)
 {
 	/* ip_fragment doesn't copy the MAC header */
@@ -47,7 +57,7 @@ int br_dev_queue_push_xmit(struct sk_buff *skb)
 	    (packet_length(skb) > skb->dev->mtu && !skb_is_gso(skb))) {
 		kfree_skb(skb);
 	} else {
-		skb_push(skb, ETH_HLEN);
+		skb_push(skb, ETH_HLEN);//为什么要执行这一句？难道是br_dev_xmit()执行了skb_pull()
 		br_drop_fake_rtable(skb);
 		dev_queue_xmit(skb);
 	}

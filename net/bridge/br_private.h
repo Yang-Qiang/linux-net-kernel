@@ -200,6 +200,7 @@ struct br_cpu_netstats {
 	struct u64_stats_sync	syncp;
 };
 
+/*网桥私有数据：*/
 struct net_bridge
 {
 	spinlock_t			lock;
@@ -606,7 +607,7 @@ static inline int br_vlan_get_tag(const struct sk_buff *skb, u16 *vid)
 	int err = 0;
 
 	if (vlan_tx_tag_present(skb))
-		*vid = vlan_tx_tag_get(skb) & VLAN_VID_MASK;
+		*vid = vlan_tx_tag_get(skb) & VLAN_VID_MASK;//获取vlan id
 	else {
 		*vid = 0;
 		err = -EINVAL;

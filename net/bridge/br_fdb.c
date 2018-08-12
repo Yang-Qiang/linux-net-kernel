@@ -472,7 +472,7 @@ void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
 		} else {
 			/* fastpath: update of existing entry */
 			fdb->dst = source;
-			fdb->updated = jiffies;
+			fdb->updated = jiffies; //如果FDB中已经存在了该MAC表项，则仅更新最新的时间，用于下次老化查询
 		}
 	} else {
 		spin_lock(&br->hash_lock);

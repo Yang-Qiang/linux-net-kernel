@@ -27,7 +27,7 @@ EXPORT_SYMBOL(br_should_route_hook);
 static int br_pass_frame_up(struct sk_buff *skb)
 {
 	struct net_device *indev, *brdev = BR_INPUT_SKB_CB(skb)->brdev;
-	struct net_bridge *br = netdev_priv(brdev);
+	struct net_bridge *br = netdev_priv(brdev);//获取网桥信息
 	struct br_cpu_netstats *brstats = this_cpu_ptr(br->stats);
 
 	u64_stats_update_begin(&brstats->syncp);
@@ -45,13 +45,13 @@ static int br_pass_frame_up(struct sk_buff *skb)
 		return NET_RX_DROP;
 	}
 
-	skb = br_handle_vlan(br, br_get_vlan_info(br), skb);
+	skb = br_handle_vlan(br, br_get_vlan_info(br), skb);//br_handle_vlan的作用是什么？
 	if (!skb)
 		return NET_RX_DROP;
 
 	indev = skb->dev;
-	skb->dev = brdev;
-
+	skb->dev = brdev;/*将skb->dev更新为brdev，即网桥设备，而不是实际物理口，这样子，重新走netif_receive_skb_sk时rx_handle就不会有值了*/
+//最后会再次调用netif_receive_skb重新接受数据包,但是这时skb->dev是网桥，并且网桥设备的rx_handler指针肯定为空，那么就不会再次进入网桥的处理，而是直接交付上层了
 	return NF_HOOK(NFPROTO_BRIDGE, NF_BR_LOCAL_IN, skb, indev, NULL,
 		       netif_receive_skb);
 }
@@ -70,12 +70,12 @@ int br_handle_frame_finish(struct sk_buff *skb)
 	if (!p || p->state == BR_STATE_DISABLED)
 		goto drop;
 
-	if (!br_allowed_ingress(p->br, nbp_get_vlan_info(p), skb, &vid))
+	if (!br_allowed_ingress(p->br, nbp_get_vlan_info(p), skb, &vid))//是否允许从桥上转发
 		goto out;
 
 	/* insert into forwarding database after filtering to avoid spoofing */
 	br = p->br;
-	br_fdb_update(br, p, eth_hdr(skb)->h_source, vid);
+	br_fdb_update(br, p, eth_hdr(skb)->h_source, vid);//更新转发数据库
 
 	if (!is_broadcast_ether_addr(dest) && is_multicast_ether_addr(dest) &&
 	    br_multicast_rcv(br, p, skb))
@@ -89,14 +89,16 @@ int br_handle_frame_finish(struct sk_buff *skb)
 	/* The packet skb2 goes to the local host (NULL to skip). */
 	skb2 = NULL;
 
-	if (br->dev->flags & IFF_PROMISC)
-		skb2 = skb;
+	if (br->dev->flags & IFF_PROMISC)//网桥设备是否处于混杂状态？
+		skb2 = skb;//如果是则建立副本，为发往本地做个备份
 
 	dst = NULL;
 
-	if (is_broadcast_ether_addr(dest))
-		skb2 = skb;
+	if (is_broadcast_ether_addr(dest))//是广播地址？
+		skb2 = skb;//仅仅设置副本，进行广播转发和发往本地
 	else if (is_multicast_ether_addr(dest)) {
+	//先查多播地址转发表，如果存在，设置副本，进行多播转发，原始数据包指向NULL,如果已经传送至本地，
+	//则会释放副本，不进行本地转发，否则重新转发到本地
 		mdst = br_mdb_get(br, skb, vid);
 		if (mdst || BR_INPUT_SKB_CB_MROUTERS_ONLY(skb)) {
 			if ((mdst && mdst->mglist) ||
@@ -116,17 +118,22 @@ int br_handle_frame_finish(struct sk_buff *skb)
 		/* Do not forward the packet since it's local. */
 		skb = NULL;
 	}
+	/*1. fdb 表中存在表项且是本地端口或者组播处理完成，设置 skb2 = skb, skb = null, unicast = false, dst != null
+	  2. 广播或者组播未处理完成 skb2 = skb, skb != null, unicast = false, dst = null
+	  3. fdb表中不存在表项（未知单播），skb2 = null, skb != null, unicast = true， dst = null
+	  4. fdb表中找到表项但不是本地端口， skb2 = null, skb != null, unicast = true, dst != null
+	 */
 
 	if (skb) {
 		if (dst) {
 			dst->used = jiffies;
-			br_forward(dst->dst, skb, skb2);
+			br_forward(dst->dst, skb, skb2);//转发数据包
 		} else
-			br_flood_forward(br, skb, skb2);
+			br_flood_forward(br, skb, skb2);//广播数据包
 	}
 
 	if (skb2)
-		return br_pass_frame_up(skb2);
+		return br_pass_frame_up(skb2);//发送本地
 
 out:
 	return 0;
@@ -142,7 +149,7 @@ static int br_handle_local_finish(struct sk_buff *skb)
 	u16 vid = 0;
 
 	br_vlan_get_tag(skb, &vid);
-	br_fdb_update(p->br, p, eth_hdr(skb)->h_source, vid);
+	br_fdb_update(p->br, p, eth_hdr(skb)->h_source, vid);//更新网桥接口地址表
 	return 0;	 /* process further */
 }
 
@@ -154,7 +161,7 @@ rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 {
 	struct net_bridge_port *p;
 	struct sk_buff *skb = *pskb;
-	const unsigned char *dest = eth_hdr(skb)->h_dest;
+	const unsigned char *dest = eth_hdr(skb)->h_dest;// /*获取目的MAC地址*/
 	br_should_route_hook_t *rhook;
 
 	if (unlikely(skb->pkt_type == PACKET_LOOPBACK))
@@ -183,7 +190,7 @@ rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 		 *
 		 * Others reserved for future standardization
 		 */
-		switch (dest[5]) {
+		switch (dest[5]) {//目的mac地址是否是01 80 c2 00 0x类型
 		case 0x00:	/* Bridge Group Address */
 			/* If STP is turned off,
 			   then must forward to keep loop detection */
@@ -201,8 +208,8 @@ rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 		}
 
 		/* Deliver packet to local host only */
-		if (NF_HOOK(NFPROTO_BRIDGE, NF_BR_LOCAL_IN, skb, skb->dev,
-			    NULL, br_handle_local_finish)) {
+		if (NF_HOOK(NFPROTO_BRIDGE, NF_BR_LOCAL_IN, skb, skb->dev,////处理NF_BR_LOCAL_IN的ebtables相关的规则。
+			    NULL, br_handle_local_finish)) {//调用函数  br_handle_frame_finish继续进行数据处理
 			return RX_HANDLER_CONSUMED; /* consumed by filter */
 		} else {
 			*pskb = skb;
@@ -226,8 +233,8 @@ forward:
 		if (ether_addr_equal(p->br->dev->dev_addr, dest))
 			skb->pkt_type = PACKET_HOST;
 
-		NF_HOOK(NFPROTO_BRIDGE, NF_BR_PRE_ROUTING, skb, skb->dev, NULL,
-			br_handle_frame_finish);
+		NF_HOOK(NFPROTO_BRIDGE, NF_BR_PRE_ROUTING, skb, skb->dev, NULL,//处理NF_BR_PRE_ROUTING的ebtables相关的规则。
+			br_handle_frame_finish);//当通过NF_BR_PRE_ROUTING相关的ebtables规则后，则会调用函数  br_handle_frame_finish继续进行数据处理
 		break;
 	default:
 drop:
