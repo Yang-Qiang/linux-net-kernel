@@ -3706,7 +3706,8 @@ ncls:
 	}
 
 	rx_handler = rcu_dereference(skb->dev->rx_handler);//网桥设备数据包接收回调函数rx_handler，如创建OVS网桥时会注册为OVS的入口函数，为netdev_frame_hook()
-														//创建Linux 网桥设备时，对应的回调函数为br_handle_frame()
+														//将某个网络接口添加到网桥上时，网络接口对应的网桥数据包宝接收回调函数初始化为br_handle_frame()
+														//如果是skb->dev == 网桥设备(比如创建网桥br0时抽象出来的网桥设备br0)，则rx_handler        为NULL
 
 /* 对于Linux网桥若编译内核时选上BRIDGE，会执行Linux网桥模块
  skb->dev->rx_handler = br_handle_frame; 所以实际函数 br_handle_frame。注意：在此网桥模块里初始化 skb->pkt_type 为 PACKET_HOST、PACKET_OTHERHOST
