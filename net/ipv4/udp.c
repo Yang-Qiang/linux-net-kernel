@@ -111,6 +111,7 @@
 #include <trace/events/skb.h>
 #include "udp_impl.h"
 
+//添加到udp_prot的.h.udp_table中， udp套接字的struct sock结构最终连接在该hash中
 struct udp_table udp_table __read_mostly;
 EXPORT_SYMBOL(udp_table);
 
@@ -820,6 +821,10 @@ out:
 }
 EXPORT_SYMBOL(udp_push_pending_frames);
 
+
+/**
+ * 发送UDP包。
+ */
 int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		size_t len)
 {
@@ -841,7 +846,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	struct sk_buff *skb;
 	struct ip_options_data opt_copy;
 
-	if (len > 0xFFFF)
+	if (len > 0xFFFF)/* IP数据报限制UDP数据报长度为64K 65535*/
 		return -EMSGSIZE;
 
 	/*
@@ -857,12 +862,12 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	getfrag = is_udplite ? udplite_getfrag : ip_generic_getfrag;
 
 	fl4 = &inet->cork.fl.u.ip4;
-	if (up->pending) {
+	if (up->pending) { /* UDP正在输出数据 */
 		/*
 		 * There are pending frames.
 		 * The socket lock must be held while it's corked.
 		 */
-		lock_sock(sk);
+		lock_sock(sk);/* 获取套接口的锁 */
 		if (likely(up->pending)) {
 			if (unlikely(up->pending != AF_INET)) {
 				release_sock(sk);
@@ -872,16 +877,16 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		}
 		release_sock(sk);
 	}
-	ulen += sizeof(struct udphdr);
+	ulen += sizeof(struct udphdr);/* 计算UDP报文总长度 */
 
 	/*
 	 *	Get and verify the address.
 	 */
-	if (msg->msg_name) {
+	if (msg->msg_name) {/* 处理msg中带有目的地址的情况，即应用程序通过sendto调用本函数 */
 		struct sockaddr_in *usin = (struct sockaddr_in *)msg->msg_name;
-		if (msg->msg_namelen < sizeof(*usin))
+		if (msg->msg_namelen < sizeof(*usin))/* 检查目的地址长度 */
 			return -EINVAL;
-		if (usin->sin_family != AF_INET) {
+		if (usin->sin_family != AF_INET) { /* 检查协议族 */
 			if (usin->sin_family != AF_UNSPEC)
 				return -EAFNOSUPPORT;
 		}
@@ -891,7 +896,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		if (dport == 0)
 			return -EINVAL;
 	} else {
-		if (sk->sk_state != TCP_ESTABLISHED)
+		if (sk->sk_state != TCP_ESTABLISHED)/* 没有指定目的地址，并且以前没有调用过connect */ //也就是说udp发送send的时候可以不指定目的地址，但必须在发送前connect。就和TCP一样
 			return -EDESTADDRREQ;
 		daddr = inet->inet_daddr;
 		dport = inet->inet_dport;
@@ -956,6 +961,9 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	if (connected)
 		rt = (struct rtable *)sk_dst_check(sk, 0);
 
+	/**
+	 * 对于未建立连接的UDP套接口，或者指定了控制信息，或者是组播报文
+	 */
 	if (rt == NULL) {
 		struct net *net = sock_net(sk);
 
@@ -1197,7 +1205,15 @@ EXPORT_SYMBOL(udp_ioctl);
  * 	This should be easy, if there is something there we
  * 	return it, otherwise we block.
  */
+//用户往缓存区中取数据
+//当用户调用recvmsg函数时，最终会调用到协议特定的接收函数，UDP协议的接收函数是udp_recvmsg;
+/*
+这个函数有三个关键操作：
+  1. 取到数据包 -- __skb_recv_datagram()
+  2. 拷贝数据 -- skb_copy_datagram_iovec()或skb_copy_and csum_datagram_iovec()
+  3. 必要时计算校验和 – skb_copy_and_csum_datagram_iovec() 
 
+*/
 int udp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		size_t len, int noblock, int flags, int *addr_len)
 {
@@ -1214,6 +1230,11 @@ int udp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		return ip_recv_error(sk, msg, len, addr_len);
 
 try_again:
+
+	/*
+	 * 调用 __skb_recv_datagram 函数从套接字的接收缓冲区队列中读取下一个数据包 
+	 * 如果队列中没有等待读入的数据包则根据用户设置的条件阻塞以等待数据、直接返回或者等待一定时间在返回
+	 */
 	skb = __skb_recv_datagram(sk, flags | (noblock ? MSG_DONTWAIT : 0),
 				  &peeked, &off, &err);
 	if (!skb)
@@ -1237,10 +1258,14 @@ try_again:
 			goto csum_copy_err;
 	}
 
-	if (skb_csum_unnecessary(skb))
+	if (skb_csum_unnecessary(skb))/* 如果不做校验和，则直接复制数据到用户空间 */
 		err = skb_copy_datagram_iovec(skb, sizeof(struct udphdr),
 					      msg->msg_iov, copied);
 	else {
+/*如果报文需要验证校验和，那么执行else部分，调用skb_copy_and_csum_datagram_iovec()拷贝报文到buf，并在拷贝过
+程中计算校验和。这也是为什么在内核收到udp报文时为什么先验证校验和再处理的原因，udp报文可能很大，校验和的计
+算可能很耗时，将其放在拷贝过程中可以节约开销，当然它的代价是一些校验和错误的报文也会被添加到socket的接收
+队列上。*/
 		err = skb_copy_and_csum_datagram_iovec(skb,
 						       sizeof(struct udphdr),
 						       msg->msg_iov);
@@ -1265,7 +1290,7 @@ try_again:
 
 	sock_recv_ts_and_drops(msg, sk, skb);
 
-	/* Copy the address. */
+	/* Copy the address. *//* 如果用户提供了缓冲区 sin 来存放数据发送端的源IP地址和端口号，则将这些信息复制到 sin 中 */
 	if (sin) {
 		sin->sin_family = AF_INET;
 		sin->sin_port = udp_hdr(skb)->source;
@@ -1285,7 +1310,7 @@ out_free:
 out:
 	return err;
 
-csum_copy_err:
+csum_copy_err://校验数据包出错，怎么让用户知道这个数据包出错了？
 	slow = lock_sock_fast(sk);
 	if (!skb_kill_datagram(sk, skb, flags)) {
 		UDP_INC_STATS_USER(sock_net(sk), UDP_MIB_CSUMERRORS, is_udplite);
@@ -1434,6 +1459,9 @@ EXPORT_SYMBOL(udp_encap_enable);
  * Note that in the success and error cases, the skb is assumed to
  * have either been requeued or freed.
  */
+ /*发送的包较大，超过接受者缓存导致丢包：包超过mtu size数倍，几个大的udp包可能会超过接收者的缓冲，导致丢包。这种
+ 情况可以设置socket接收缓冲。
+*/
 int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 {
 	struct udp_sock *up = udp_sk(sk);
@@ -1513,17 +1541,22 @@ int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	}
 
 	if (rcu_access_pointer(sk->sk_filter) &&
-	    udp_lib_checksum_complete(skb))
+	    udp_lib_checksum_complete(skb))//CRC检验，如果包不完整就会丢弃，也不会通知是否接收成功
 		goto csum_error;
 
 
-	if (sk_rcvqueues_full(sk, skb, sk->sk_rcvbuf))
+	if (sk_rcvqueues_full(sk, skb, sk->sk_rcvbuf))//socket缓冲区满造成的UDP丢包
 		goto drop;
 
 	rc = 0;
 
 	ipv4_pktinfo_prepare(skb);
 	bh_lock_sock(sk);
+	/*
+	sock_woned_by_user()判断sk->sk_lock.owned的值，如果等于1，表示sk处于占用状态，此时不能向sk接
+	收队列中添加skb，执行else if部分，sk_add_backlog()将skb添加到sk->sk_backlog队列上；如果等于0，表示sk
+	没被占用，执行if部分，__udp_queue_rcv_skb()将skb添加到sk->sk_receive_queue队列上。
+	*/
 	if (!sock_owned_by_user(sk))
 		rc = __udp_queue_rcv_skb(sk, skb);
 	else if (sk_add_backlog(sk, skb, sk->sk_rcvbuf)) {
@@ -1677,6 +1710,8 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 
 	/*
 	 *  Validate the packet.
+	 */	/*
+	 *  检查UDP协议头是否正确
 	 */
 	if (!pskb_may_pull(skb, sizeof(struct udphdr)))
 		goto drop;		/* No space for header. */
@@ -1695,20 +1730,18 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 			goto short_packet;
 		uh = udp_hdr(skb);
 	}
-
 	if (udp4_csum_init(skb, uh, proto))
 		goto csum_error;
 
-	if (rt->rt_flags & (RTCF_BROADCAST|RTCF_MULTICAST))
+	if (rt->rt_flags & (RTCF_BROADCAST|RTCF_MULTICAST))/* 如果路由标志为组传送或广播地址，则完成数据包的广播传送与组传送 */
 		return __udp4_lib_mcast_deliver(net, skb, uh,
 				saddr, daddr, udptable);
-
+	/* 检查是否有打开的套接字的等待接受数据包 */
 	sk = __udp4_lib_lookup_skb(skb, uh->source, uh->dest, udptable);
 
-	if (sk != NULL) {
-		int ret = udp_queue_rcv_skb(sk, skb);
-		sock_put(sk);
-
+	if (sk != NULL) {//有打开的套接字在等待接收数据包
+		int ret = udp_queue_rcv_skb(sk, skb);//将数据包放到套接字接收缓冲区
+		sock_put(sk);//减少sk的引用计算，并返回。之后的接收工作的完成将有赖于用户的操作。
 		/* a return value > 0 means to resubmit the input, but
 		 * it wants the return to be -protocol, or 0
 		 */
@@ -1716,17 +1749,21 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 			return -ret;
 		return 0;
 	}
-
+/*以下是没有打开的套接字在等待接收数据包d的操作步骤:
+当没有在udptable中找到sk时，则本机没有socket会接收它，因此要发送icmp不可达报文，在此之前，还要
+验证校验和udp_lib_checksum_complete()，如果校验和错误，则直接丢弃报文；如果校验和正确，则会增加mib中的统计，并发
+送icmp端口不可达报文，然后丢弃该报文。
+*/
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb))
 		goto drop;
 	nf_reset(skb);
 
-	/* No socket. Drop packet silently, if checksum is wrong */
+	/* No socket. Drop packet silently, if checksum is wrong *//* 没有打开的UDP套接字，对数据包进行校验和计算，如果不正确就扔掉 */
 	if (udp_lib_checksum_complete(skb))
 		goto csum_error;
 
 	UDP_INC_STATS_BH(net, UDP_MIB_NOPORTS, proto == IPPROTO_UDPLITE);
-	icmp_send(skb, ICMP_DEST_UNREACH, ICMP_PORT_UNREACH, 0);
+	icmp_send(skb, ICMP_DEST_UNREACH, ICMP_PORT_UNREACH, 0);/* 校验和正确，更新UDP统计信息，向发送方返回端口不可达ICMP报文 */
 
 	/*
 	 * Hmm.  We got an UDP packet to a port to which we
@@ -1759,6 +1796,12 @@ drop:
 	return 0;
 }
 
+/*
+网卡接收到的网络数据经过IP层处理后，会调用上面给出的UDP与IP层的接口函数udp_rcv,此函数的主要作用是将接收到的数据包存放到缓存区中； 然后当用户调用recvmsg函数时从缓存区中取出数据。
+
+IP层往缓存区中存数据
+udp_rcv函数是__udp4_lib_rcv函数的包装函数，所以主要功能在__udp4_lib_rcv函数中实现：
+*/
 int udp_rcv(struct sk_buff *skb)
 {
 	return __udp4_lib_rcv(skb, &udp_table, IPPROTO_UDP);
