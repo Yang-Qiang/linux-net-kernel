@@ -283,6 +283,7 @@ struct cg_proto;
   *	@sk_backlog_rcv: callback to process the backlog
   *	@sk_destruct: called at sock freeing time, i.e. when all refcnt == 0
  */
+ /*传输控制块，打通传输层到网络层*/
 struct sock {
 	/*
 	 * Now struct inet_timewait_sock also uses sock_common, so please just
@@ -303,7 +304,7 @@ struct sock {
 #define sk_reuseport		__sk_common.skc_reuseport
 #define sk_bound_dev_if		__sk_common.skc_bound_dev_if
 #define sk_bind_node		__sk_common.skc_bind_node
-#define sk_prot			__sk_common.skc_prot
+#define sk_prot			__sk_common.skc_prot//传输层到网络层的接口实现，从套接字系统到网络层的实现大致为socket->proto_opt->sk_prot
 #define sk_net			__sk_common.skc_net
 	socket_lock_t		sk_lock;
 	struct sk_buff_head	sk_receive_queue;
@@ -371,7 +372,7 @@ struct sock {
 	int			sk_err,
 				sk_err_soft;
 	unsigned short		sk_ack_backlog;
-	unsigned short		sk_max_ack_backlog;
+	unsigned short		sk_max_ack_backlog;//最大监听队列
 	__u32			sk_priority;
 #if IS_ENABLED(CONFIG_NETPRIO_CGROUP)
 	__u32			sk_cgrp_prioidx;
@@ -403,6 +404,33 @@ struct sock {
 						  struct sk_buff *skb);
 	void                    (*sk_destruct)(struct sock *sk);
 };
+/*
+当应用层程序调用send发送数据之后，相应系统调用为sys_sendmsg，在socket文件系统中，该调用指向inet_sendmsg。
+
+不同的传输层协议inet_sendmsg的proto指向的操作也不一样，而对于TCP协议，inet_sendmsg指向tcp_sendmsg函数，
+
+所以tcp的发送函数接口是tcp_sendmsg。在介绍tcp_sendmsg之前需要介绍tcp的发送队列，在sock结构中有两个和发送队列
+
+有关的变量，分别为sk_write_queue和sk_send_head。sk_write_queue指向整个发送队列，其中包括了已发送未被确认的数
+
+据以及还未发送的数据；sk_send_head指向当前要发送的数据，即下一个要发送的SKB，结构示意图如下：
+struct sock
+
+---------------------
+	......
+---------------------
+	sk_write_queue -> SKB1 -> SKB2  -> SKB3
+---------------------   ------->
+    ......             |
+---------------------
+	sk_send_head-------|
+---------------------
+
+
+上图表示当前发送队列有三个SKB，已经发送了SKB1但是还未被确认，下一个要发送的是SKB2。TCP中的最主要到发送函数
+
+是tcp_transmit_skb，所有的SKB都经过该函数进行发送。
+*/
 
 /*
  * SK_CAN_REUSE and SK_NO_REUSE on a socket mean that the socket is OK

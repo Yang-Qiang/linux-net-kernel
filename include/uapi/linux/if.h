@@ -173,11 +173,36 @@ struct if_settings {
  * remainder may be interface specific.
  */
 
-struct ifreq {
+/*
+网络相关的ioctl请求的request参数及arg地址必须指向的数据类型如下表所示
+SIOCGIFCONF        获取所有接口的清单                    struct ifconf
+SIOCSIFADDR        设置接口地址                       struct ifreq
+SIOCGIFADDR        获取接口地址                       struct ifreq
+SIOCSIFFLAGS       设置接口标志                       struct ifreq
+SIOCGIFFLAGS       获取接口标志                       struct ifreq
+SIOCSIFDSTADDR     设置点到点地址                      struct ifreq
+SIOCGIFDSTADDR     获取点到点地址                      struct ifreq
+SIOCGIFBRDADDR     获取广播地址                       struct ifreq
+SIOCSIFBRDADDR     设置广播地址                       struct ifreq
+SIOCGIFNETMASK     获取子网掩码                       struct ifreq
+SIOCSIFNETMASK     设置子网掩码                       struct ifreq
+SIOCGIFMETRIC      获取接口的测度                      struct ifreq
+SIOCSIFMETRIC      设置接口的测度                      struct ifreq
+SIOCGIFMTU         获取接口MTU                      struct ifreq
+SIOCxxx
+
+Ifreq结构用来配置ip地址，激活接口，配置MTU。在Linux系统中获取IP地址通常都是通
+过ifconfig命令来实现的，然而ifconfig命令实际是通过ioctl接口与内核通信，ifconfig命令首先打
+开一个socket，然后调用ioctl将request传递到内核，从而获取request请求数据。处理网络接口的许多程序沿用的
+初始步骤之一就是从内核获取配置在系统中的所有接口
+
+*/
+
+struct ifreq {//ifreq用来保存某个接口的信息
 #define IFHWADDRLEN	6
 	union
 	{
-		char	ifrn_name[IFNAMSIZ];		/* if name, e.g. "en0" */
+		char	ifrn_name[IFNAMSIZ];		/* if name, e.g. "en0"  ifr_name 标识了某一接口 */
 	} ifr_ifrn;
 	
 	union {
@@ -197,13 +222,13 @@ struct ifreq {
 	} ifr_ifru;
 };
 
-#define ifr_name	ifr_ifrn.ifrn_name	/* interface name 	*/
+#define ifr_name	ifr_ifrn.ifrn_name	/* interface name ifr_name 标识了某一接口	*/
 #define ifr_hwaddr	ifr_ifru.ifru_hwaddr	/* MAC address 		*/
 #define	ifr_addr	ifr_ifru.ifru_addr	/* address		*/
 #define	ifr_dstaddr	ifr_ifru.ifru_dstaddr	/* other end of p-p lnk	*/
 #define	ifr_broadaddr	ifr_ifru.ifru_broadaddr	/* broadcast address	*/
 #define	ifr_netmask	ifr_ifru.ifru_netmask	/* interface net mask	*/
-#define	ifr_flags	ifr_ifru.ifru_flags	/* flags		*/
+#define	ifr_flags	ifr_ifru.ifru_flags	/* flags	与netdevice->flags是同一个意思吗？	*/
 #define	ifr_metric	ifr_ifru.ifru_ivalue	/* metric		*/
 #define	ifr_mtu		ifr_ifru.ifru_mtu	/* mtu			*/
 #define ifr_map		ifr_ifru.ifru_map	/* device map		*/

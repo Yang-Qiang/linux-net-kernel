@@ -190,6 +190,14 @@ out:
 	return delivered;
 }
 
+
+/*
+ip_local_deliver_finish函数会先检查哈希表raw_v4_htable。因为在创建 socket时，inet_create会把协议号IPPROTO_ICMP的值赋给socket的成员num，
+并以num为键值，把socket存入哈 项表raw_v4_htable，raw_v4_htable[IPPROTO_ICMP&(MAX_INET_PROTOS-1)]上即存放了 这个socket，实际上是一个socket的链表，
+如果其它还有socket要处理这个回显应答，也会被放到这里，组成一个链 表，ip_local_deliver_finish收到数据报后，取出这个socket链表(目前实际上只有一项)，
+调用raw_v4_input，把 skb交给每一个socket进行处理。然后，还需要把数据报交给inet_protos[IPPROTO_ICMP& (MAX_INET_PROTOS-1)]，即icmp_rcv处理，
+因为对于icmp报文，每一个都是需要经过协议栈处理的，但对回显应 答，icmp_rcv只是简单丢弃，并未实际处理。
+*/
 int raw_local_deliver(struct sk_buff *skb, int protocol)
 {
 	int hash;

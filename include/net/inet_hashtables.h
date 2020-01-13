@@ -361,10 +361,11 @@ static inline struct sock *__inet_lookup(struct net *net,
 					 const int dif)
 {
 	u16 hnum = ntohs(dport);
-	struct sock *sk = __inet_lookup_established(net, hashinfo,
+	struct sock *sk = __inet_lookup_established(net, hashinfo,//__inet_lookup_established函数查找已经处于establish状态的连接
 				saddr, sport, daddr, hnum, dif);
 
-	return sk ? : __inet_lookup_listener(net, hashinfo, saddr, sport,
+	return sk ? : __inet_lookup_listener(net, hashinfo, saddr, sport,//调用__inet_lookup_listener函数查找是否存在四元组相
+                                                                     //匹配的处于listen状态的sock
 					     daddr, hnum, dif);
 }
 

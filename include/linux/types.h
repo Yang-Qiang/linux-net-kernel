@@ -172,7 +172,7 @@ typedef phys_addr_t resource_size_t;
  */
 typedef unsigned long irq_hw_number_t;
 
-typedef struct {
+ typedef struct {
 	int counter;
 } atomic_t;
 

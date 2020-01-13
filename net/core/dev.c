@@ -1724,6 +1724,7 @@ int dev_forward_skb(struct net_device *dev, struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(dev_forward_skb);
 
+//该函数就是调用个协议的接收函数处理该skb包，进入第三层网络层处理
 static inline int deliver_skb(struct sk_buff *skb,
 			      struct packet_type *pt_prev,
 			      struct net_device *orig_dev)
@@ -2997,10 +2998,11 @@ int netdev_budget __read_mostly = 300;
 int weight_p __read_mostly = 64;            /* old backlog weight */
 
 /* Called with irq disabled */
+//触发一个类型为NET_RX_SOFTIRQ的软中断
 static inline void ____napi_schedule(struct softnet_data *sd,
 				     struct napi_struct *napi)
 {
-	list_add_tail(&napi->poll_list, &sd->poll_list);
+	list_add_tail(&napi->poll_list, &sd->poll_list);//挂载到softnet_data->poll_list上
 	__raise_softirq_irqoff(NET_RX_SOFTIRQ);//将触发一个类型为NET_RX_SOFTIRQ的软中断，由do_softirq()函数执行这个软中断
 	                                       //对于NET_RX_SOFTIRQ类型的软中断来说，系统将其action注册为net_rx_action
 }
@@ -3657,7 +3659,7 @@ another_round:
 
 	__this_cpu_inc(softnet_data.processed);
 
-	//vxlan报文处理，剥除vxlan头
+	//vlan报文处理，剥除vlan头
 	if (skb->protocol == cpu_to_be16(ETH_P_8021Q) ||
 	    skb->protocol == cpu_to_be16(ETH_P_8021AD)) {
 		skb = vlan_untag(skb);//剥除vlan头
@@ -3675,7 +3677,8 @@ another_round:
 	if (pfmemalloc)
 		goto skip_taps; //此类报文不允许ptype_all处理，即tcpdump也抓不到
 
-	list_for_each_entry_rcu(ptype, &ptype_all, list) { ////在net_dev_init中初始化,遍历ptype_all，如果有则做相应处理，例如raw socket和tcpdump实现
+	list_for_each_entry_rcu(ptype, &ptype_all, list) { //在net_dev_init中初始化,遍历ptype_all，如果有则做相应处理，例如raw socket和tcpdump实现.ptype_all通常用于例如抓包之类的数据处理
+														//raw socket收包实现是通过在ptype_all或ptype_base中注册实现的,当创建raw socket时指定的协议为ETH_P_ALL，则注册在ptype_all
 		if (!ptype->dev || ptype->dev == skb->dev) {
 			if (pt_prev)
 				ret = deliver_skb(skb, pt_prev, orig_dev);//
@@ -3704,7 +3707,6 @@ ncls:
 		else if (unlikely(!skb))
 			goto out;
 	}
-
 	rx_handler = rcu_dereference(skb->dev->rx_handler);//网桥设备数据包接收回调函数rx_handler，如创建OVS网桥时会注册为OVS的入口函数，为netdev_frame_hook()
 														//将某个网络接口添加到网桥上时，网络接口对应的网桥数据包宝接收回调函数初始化为br_handle_frame()
 														//如果是skb->dev == 网桥设备(比如创建网桥br0时抽象出来的网桥设备br0)，则rx_handler        为NULL
@@ -4453,11 +4455,13 @@ void netif_napi_del(struct napi_struct *napi)
 EXPORT_SYMBOL(netif_napi_del);
 
 /*
-不配置NAPI的时候，网络设备不使用自己的napi_struct结构，
+1.不配置NAPI的时候，网络设备不使用自己的napi_struct结构，
 所有网络设备驱动都使用同一个napi_struct(默认的),即cpu私有变量__get_cpu_var(softnet_data).backlog
 每当收到数据包时，网络设备驱动会把__get_cpu_var(softnet_data).backlog挂到__get_cpu_var(softnet_data).poll_list上面。
-所以软中断里net_rx_action遍历cpu私有变量__get_cpu_var(softnet_data).poll_list时，
-上面挂的napi_struct只有一个
+所1以软中断里net_rx_action遍历cpu私有变量__get_cpu_var(softnet_data).poll_list时，上面挂的napi_struct只有一个。
+
+2.对于使用NAPI的，每次调用 __napi_schedule()函数时， napi会把自己挂在sd->poll_list上，遍历cpu私有变量__get_cpu_var(softnet_data).poll_list时，
+取出NAPI结构体，然后调用napi的poll()函数。
 */
 //不管NAPI还是非NAPI最终都调用net_rx_action
 static void net_rx_action(struct softirq_action *h)
@@ -4471,6 +4475,7 @@ static void net_rx_action(struct softirq_action *h)
     /*  
     NAPI的napi_struct是自己构造的，该结构上的poll钩子函数也是自己定义的。
     非NAPI的napi_struct结构是默认的，也就是per cpu的softnet_data>backlog，起poll钩子函数为process_backlog
+    对于NAPI，调用 __napi_schedule()函数时会把自己挂在sd->poll_list
     */
 
 	while (!list_empty(&sd->poll_list)) {
@@ -6680,9 +6685,9 @@ static int __init net_dev_init(void)
 		sd->cpu = i;
 #endif
 
-		sd->backlog.poll = process_backlog;//中断处理函数net_rx_action调用设备的poll方法（默认为process_backlog），
+		sd->backlog.poll = process_backlog;//中断处理函数net_rx_action调用napi的poll方法（默认为process_backlog），
 		                                   //而process_backlog函数将进一步调用netif_receive_skb()将数据包传上
-		                                   //协议栈，如果设备自身注册了poll函数，也将调用netif_receive_skb()函数
+		                                   //协议栈
 		sd->backlog.weight = weight_p;
 		sd->backlog.gro_list = NULL;
 		sd->backlog.gro_count = 0;

@@ -324,7 +324,7 @@ static struct dentry *sockfs_mount(struct file_system_type *fs_type,
 
 static struct vfsmount *sock_mnt __read_mostly;
 
-static struct file_system_type sock_fs_type = {
+static struct file_system_type sock_fs_type = {//套接字文件系统
 	.name =		"sockfs",
 	.mount =	sockfs_mount,
 	.kill_sb =	kill_anon_super,
@@ -346,7 +346,7 @@ static struct file_system_type sock_fs_type = {
  *	with shared fd spaces, we cannot solve it inside kernel,
  *	but we take care of internal coherence yet.
  */
-
+//分配套接字接口文件
 struct file *sock_alloc_file(struct socket *sock, int flags, const char *dname)
 {
 	struct qstr name = { .name = "" };
@@ -383,7 +383,7 @@ struct file *sock_alloc_file(struct socket *sock, int flags, const char *dname)
 	return file;
 }
 EXPORT_SYMBOL(sock_alloc_file);
-
+//套接字文件和套接字系统绑定
 static int sock_map_fd(struct socket *sock, int flags)
 {
 	struct file *newfile;
@@ -1308,7 +1308,7 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 	/* Now protected by module ref count */
 	rcu_read_unlock();
 
-	err = pf->create(net, sock, protocol, kern);
+	err = pf->create(net, sock, protocol, kern);//对于ipv4 调用inet_create(), 对socket初始化并创建sock
 	if (err < 0)
 		goto out_module_put;
 

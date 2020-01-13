@@ -24,6 +24,7 @@
 br_should_route_hook_t __rcu *br_should_route_hook __read_mostly;
 EXPORT_SYMBOL(br_should_route_hook);
 
+//从网桥处理流程进入本地协议栈
 static int br_pass_frame_up(struct sk_buff *skb)
 {
 	struct net_device *indev, *brdev = BR_INPUT_SKB_CB(skb)->brdev;
@@ -54,6 +55,13 @@ static int br_pass_frame_up(struct sk_buff *skb)
 //最后会再次调用netif_receive_skb重新接受数据包,但是这时skb->dev是网桥，并且网桥设备的rx_handler指针肯定为空，那么就不会再次进入网桥的处理，而是直接交付上层了
 	return NF_HOOK(NFPROTO_BRIDGE, NF_BR_LOCAL_IN, skb, indev, NULL,
 		       netif_receive_skb);
+/*前面已经提到，在netif_receive_skb函数中，调用了handle_bridge函数，并且触发了  网桥
+的处理流程，现在发往网桥虚拟设备的数据
+包又回到了netif_receive_skb,那么网桥的处理过程会不会又被
+调用到呢？     在 linux/net/bridge/br_if.c里面可以看
+到br_add_if函数，实际上的操作是将某一网口加入网桥组，这个函数调用了new_nbp(br, dev); 用以填充net_bridge以及dev结构的
+重要成员，里面将dev->br_port设定为一个新建的net_bridge_port结构，而上面的br_pass_frame_up函数将skb->dev赋成了br->dev,实际上skb->dev变成了网桥建立的虚拟设备，这个设备是网
+桥本身而不是桥组的某一端口，系统没有为其调用br_add_if，所以这个net_device结构的br_port指针没有进行赋值。*/
 }
 
 /* note: already called with rcu_read_lock */
@@ -231,6 +239,7 @@ forward:
 		/* fall through */
 	case BR_STATE_LEARNING:
 		if (ether_addr_equal(p->br->dev->dev_addr, dest))
+			////如果数据包的目的地址和网桥的虚拟设备地址相同，则将数据包类型设为PACKET_HOST，也就是发往本地的数据
 			skb->pkt_type = PACKET_HOST;
 
 		NF_HOOK(NFPROTO_BRIDGE, NF_BR_PRE_ROUTING, skb, skb->dev, NULL,//处理NF_BR_PRE_ROUTING的ebtables相关的规则。

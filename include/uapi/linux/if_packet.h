@@ -24,8 +24,8 @@ struct sockaddr_ll {
 #define PACKET_HOST		0		/* To us		*/
 #define PACKET_BROADCAST	1		/* To all		*/
 #define PACKET_MULTICAST	2		/* To group		*/
-#define PACKET_OTHERHOST	3		/* To someone else 	*/
-#define PACKET_OUTGOING		4		/* Outgoing of any type */
+#define PACKET_OTHERHOST	3		/* To someone else 	/数据包不是发给该主机的,这里所说的“不属于”这个主机，是指在这个包目标主机的MAC地址不是本机，而不是L3层的ip地址。*/
+#define PACKET_OUTGOING		4		/* Outgoing of any type	这个数据包将要被发送出去 */
 /* These ones are invisible by user level */
 #define PACKET_LOOPBACK		5		/* MC/BRD frame looped back */
 #define PACKET_FASTROUTE	6		/* Fastrouted frame	*/

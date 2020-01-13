@@ -29,6 +29,8 @@ static DEFINE_MUTEX(net_mutex);
 LIST_HEAD(net_namespace_list);
 EXPORT_SYMBOL_GPL(net_namespace_list);
 
+//在linux内核中默认情况下，会有一个默认的网络命名空间，其名为init_net
+//,并也将其导出，作为全局变量。
 struct net init_net = {
 	.dev_base_head = LIST_HEAD_INIT(init_net.dev_base_head),
 };

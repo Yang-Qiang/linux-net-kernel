@@ -1815,7 +1815,7 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		goto discard;
 #endif
 
-	if (sk->sk_state == TCP_ESTABLISHED) { /* Fast path */
+	if (sk->sk_state == TCP_ESTABLISHED) { /* Fast path */ //如果为TCP_ESTABLISHED状态,则进入相关处理  
 		struct dst_entry *dst = sk->sk_rx_dst;
 
 		sock_rps_save_rxhash(sk, skb);
@@ -1833,15 +1833,15 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		return 0;
 	}
 
-	if (skb->len < tcp_hdrlen(skb) || tcp_checksum_complete(skb))
+	if (skb->len < tcp_hdrlen(skb) || tcp_checksum_complete(skb))//进行包头的合法性校验.
 		goto csum_err;
-
+	// 若是TCP_LISTEN状态
 	if (sk->sk_state == TCP_LISTEN) {
-		struct sock *nsk = tcp_v4_hnd_req(sk, skb);
+		struct sock *nsk = tcp_v4_hnd_req(sk, skb);// 先查找监听套接字的syn_table（半连接队列），后查找ehash
 		if (!nsk)
 			goto discard;
 
-		if (nsk != sk) {
+		if (nsk != sk) { // 若找到tcp_request_sock或tcp_sock
 			sock_rps_save_rxhash(nsk, skb);
 			if (tcp_child_process(sk, nsk, skb)) {
 				rsk = nsk;
@@ -1851,7 +1851,7 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		}
 	} else
 		sock_rps_save_rxhash(sk, skb);
-
+		//进入其他状态的处理.除了ESTABLISHED和TIME_WAIT状态. 
 	if (tcp_rcv_state_process(sk, skb, tcp_hdr(skb), skb->len)) {
 		rsk = sk;
 		goto reset;
@@ -1970,20 +1970,20 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	int ret;
 	struct net *net = dev_net(skb->dev);
 
-	if (skb->pkt_type != PACKET_HOST)
+	if (skb->pkt_type != PACKET_HOST) //如果不是发往本地的数据包，则直接丢弃
 		goto discard_it;
 
 	/* Count it even if it's bad */
 	TCP_INC_STATS_BH(net, TCP_MIB_INSEGS);
 
-	if (!pskb_may_pull(skb, sizeof(struct tcphdr)))
+	if (!pskb_may_pull(skb, sizeof(struct tcphdr)))//包长是否大于TCP头的长度
 		goto discard_it;
 
 	th = tcp_hdr(skb);
 
-	if (th->doff < sizeof(struct tcphdr) / 4)
+	if (th->doff < sizeof(struct tcphdr) / 4) //检查TCP首部的长度和TCP首部中的doff字段是否匹配
 		goto bad_packet;
-	if (!pskb_may_pull(skb, th->doff * 4))
+	if (!pskb_may_pull(skb, th->doff * 4)) //检查TCP首部到TCP数据之间的偏移是否越界
 		goto discard_it;
 
 	/* An explanation is required here, I think.
@@ -1995,6 +1995,14 @@ int tcp_v4_rcv(struct sk_buff *skb)
 
 	th = tcp_hdr(skb);
 	iph = ip_hdr(skb);
+
+/*计算end_seq,实际上，end_seq是数据包的结束序列号，实际上是期待TCP确认
+包中ACK的数值，在数据传输过程中，确认包ACK的数值等于本次数据包SEQ
+号加上本数据包的有效载荷，即skb->len - th->doff * 4,但是在处理SYN报文或者
+FIN报文的时候，确认包的ACK等于本次处理数据包的SEQ+1,考虑到这种情况，
+期待下一个数据包的ACK就变成了TCP_SKB_CB(skb)->seq + th->syn + th->fin +skb->len - th->doff * 4
+TCP_SKB_CB宏会返回skb->cb[0],一个类型为tcp_skb_cb的结构指针，这个结构保存了TCP首部选项和其他的一些状态信息
+*/
 	TCP_SKB_CB(skb)->seq = ntohl(th->seq);
 	TCP_SKB_CB(skb)->end_seq = (TCP_SKB_CB(skb)->seq + th->syn + th->fin +
 				    skb->len - th->doff * 4);
@@ -2002,13 +2010,17 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	TCP_SKB_CB(skb)->when	 = 0;
 	TCP_SKB_CB(skb)->ip_dsfield = ipv4_get_dsfield(iph);
 	TCP_SKB_CB(skb)->sacked	 = 0;
-
+	
+/*根据四元组查找相应连接的sock结构，大体有两个步骤，首先用__inet_lookup_established函数查找已
+经处于establish状态的连接，如果查找不到的话，就调用__inet_lookup_listener函数查找是否存在四元组相
+匹配的处于listen状态的sock,这个时候实际上是被动的接收来自其他主机的连接请求,如果查找不到匹配的sock,则直接丢弃数据包
+*/	
 	sk = __inet_lookup_skb(&tcp_hashinfo, skb, th->source, th->dest);
 	if (!sk)
 		goto no_tcp_socket;
 
 process:
-	if (sk->sk_state == TCP_TIME_WAIT)
+	if (sk->sk_state == TCP_TIME_WAIT)//检查sock是否处于半关闭状态
 		goto do_time_wait;
 
 	if (unlikely(iph->ttl < inet_sk(sk)->min_ttl)) {
@@ -2037,7 +2049,7 @@ process:
 		else
 #endif
 		{
-			if (!tcp_prequeue(sk, skb))
+			if (!tcp_prequeue(sk, skb)) // 若未启用tcp_low_latency，且用户进程正在访问传输控制块，将skb加入prequeue队列（return 1）
 				ret = tcp_v4_do_rcv(sk, skb);
 		}
 	} else if (unlikely(sk_add_backlog(sk, skb,

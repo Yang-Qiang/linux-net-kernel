@@ -1682,7 +1682,7 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	if (res.type != RTN_UNICAST)
 		goto martian_destination;
 
-	err = ip_mkroute_input(skb, &res, &fl4, in_dev, daddr, saddr, tos);
+	err = ip_mkroute_input(skb, &res, &fl4, in_dev, daddr, saddr, tos);//ip_mkroute_input->__mkroute_input->rth->dst.input = ip_forward;rth->dst.output = ip_output;
 out:	return err;
 
 brd_input:
@@ -1699,7 +1699,7 @@ brd_input:
 	res.type = RTN_BROADCAST;
 	RT_CACHE_STAT_INC(in_brd);
 
-local_input:
+
 	do_cache = false;
 	if (res.fi) {
 		if (!itag) {
@@ -1718,7 +1718,7 @@ local_input:
 	if (!rth)
 		goto e_nobufs;
 
-	rth->dst.input= ip_local_deliver;
+	rth->dst.input= ip_local_deliver;//发往本地的数据包最终调用该函数将数据包发往上层协议
 	rth->dst.output= ip_rt_bug;
 #ifdef CONFIG_IP_ROUTE_CLASSID
 	rth->dst.tclassid = itag;

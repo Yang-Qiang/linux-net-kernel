@@ -14,12 +14,14 @@ struct timer_list {
 	 * All fields that change during normal runtime grouped to the
 	 * same cacheline
 	 */
-	struct list_head entry;
-	unsigned long expires;
+	struct list_head entry;//用来将多个定时器连接成一条双向循环队列
+	unsigned long expires;//指定定时器到期的时间，这个时间被表示成自系统启动以来的时钟滴答计数（也即时钟节拍数）。当一个
+							//定时器的expires值小于或等于jiffies变量时，我们就说这个定时器已经超时或到期了。在初始化一个定时器后，通常
+							//把它的expires域设置成当前expires变量的当前值加上某个时间间隔值（以时钟滴答次数计）
 	struct tvec_base *base;
 
-	void (*function)(unsigned long);
-	unsigned long data;
+	void (*function)(unsigned long);//指向一个可执行函数。当定时器到期时，内核就执行function所指定的函数
+	unsigned long data; //被内核用作function函数的调用参数
 
 	int slack;
 
@@ -32,7 +34,14 @@ struct timer_list {
 	struct lockdep_map lockdep_map;
 #endif
 };
-
+/*
+主要相关的API函数：
+a. init_timer(struct timer_list*):定时器初始化函数；
+b. add_timer(struct timer_list*):往系统添加定时器,先要完成定时器初始化；
+c. mod_timer(struct timer_list *, unsigned long jiffier_timerout):修改定时器的超时时间为jiffies_timerout;
+d. timer_pending(struct timer_list *):定时器状态查询，如果在系统的定时器列表中则返回1，否则返回0；
+e. del_timer(struct timer_list*):删除定时器。
+*/
 extern struct tvec_base boot_tvec_bases;
 
 #ifdef CONFIG_LOCKDEP

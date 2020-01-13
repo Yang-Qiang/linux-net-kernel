@@ -320,7 +320,7 @@ struct napi_struct {
 	 * to the per-cpu poll_list, and whoever clears that bit
 	 * can remove from the list right before clearing the bit.
 	 */
-	struct list_head	poll_list;  /* 用于加入处于轮询状态的设备队列 */
+	struct list_head	poll_list;  /* 链表结构，用于挂载到softnet_data->poll_list上。 */
 
 	unsigned long		state; /* 设备的状态 */
 	int			weight; /* 每次处理的最大数量，非NAPI默认为64 */
@@ -802,7 +802,7 @@ struct netdev_fcoe_hbainfo {
  *	If device support VLAN filtering this function is called when a
  *	VLAN id is unregistered.
  *
- * void (*ndo_poll_controller)(struct net_device *dev);
+ * void (*ndo_poll_controller)(struct net_device *dev);  //使用查询方式代替中断方式处理网卡数据包收发事件，注意必须禁止中断，实际上直接调用中断函数，也可以直接调度NAPI去处理；
  *
  *	SR-IOV management functions.
  * int (*ndo_set_vf_mac)(struct net_device *dev, int vf, u8* mac);
@@ -1212,8 +1212,11 @@ struct net_device {
 
 #endif
 
-	rx_handler_func_t __rcu	*rx_handler;
-	void __rcu		*rx_handler_data;
+	rx_handler_func_t __rcu	*rx_handler;//网桥设备数据包接收回调函数rx_handler，如创建OVS网桥时会注册为OVS的入口函数，为netdev_frame_hook()
+										//创建Linux 网桥设备接口时，对应的回调函数为br_handle_frame()，其中网桥初始化时为其
+										//抽象出来的网桥设备接口中此值为NULL
+
+	void __rcu		*rx_handler_data;//data pointer that is used by rx handler
 
 	struct netdev_queue __rcu *ingress_queue;
 	unsigned char		broadcast[MAX_ADDR_LEN];	/* hw bcast add	*/
@@ -1549,10 +1552,22 @@ struct napi_gro_cb {
 
 #define NAPI_GRO_CB(skb) ((struct napi_gro_cb *)(skb)->cb)
 
+
+/*
+常见以太网类型对应的处理函数
+net/ipv4/af_inet.c:  dev_add_pack(&ip_packet_type);     //ETH_P_IP       ip_rcv
+net/ipv4/arp.c:    dev_add_pack(&arp_packet_type);      //ETH_P_ARP       arp_rcv
+net/ipv4/ipconfig.c:  dev_add_pack(&rarp_packet_type);  //ETH_P_RARP      ic_rarp_recv
+net/ipv4/ipconfig.c:  dev_add_pack(&bootp_packet_type); //ETH_P_IP        ic_bootp_recv
+net/llc/llc_core.c: dev_add_pack(&llc_packet_type);     //ETH_P_802_2     llc_rcv
+net/llc/llc_core.c: dev_add_pack(&llc_tr_packet_type);  //ETH_P_TR_802_2  llc_rcv
+net/x25/af_x25.c:  dev_add_pack(&x25_packet_type);      //ETH_P_X25      x25_lapb_receive_frame
+net/8021q/vlan.c:  dev_add_pack(&vlan_packet_type);     //ETH_P_8021Q     vlan_skb_recv
+*/
 struct packet_type {
-	__be16			type;	/* This is really htons(ether_type). */
-	struct net_device	*dev;	/* NULL is wildcarded here	     */
-	int			(*func) (struct sk_buff *,
+	__be16			type;	/* This is really htons(ether_type).以太网类型定义在文件if_ether.h */
+	struct net_device	*dev;	/* NULL is wildcarded her网络设备。PF_PACKET套接字通常使用它在特定的设备监听，例如，tcpdump -i eth0  通过PF_PACKET套接字创建一个packet_type实例，然后将dev指向eth0对应的net_device数据结构。*/
+	int			(*func) (struct sk_buff *, //协议处理函数
 					 struct net_device *,
 					 struct packet_type *,
 					 struct net_device *);
@@ -2996,6 +3011,15 @@ do {								\
  *		0009	Localtalk
  *		86DD	IPv6
  */
+
+/*
+常见协议的packet_type
+net/ipv4/af_inet.c:  dev_add_pack(&ip_packet_type);     //ETH_P_IP       ip_rcv
+net/ipv4/arp.c:    dev_add_pack(&arp_packet_type);      //ETH_P_ARP       arp_rcv
+net/8021q/vlan.c:  dev_add_pack(&vlan_packet_type);     //ETH_P_8021Q     vlan_skb_recv
+这些不同协议的packet_type，有些是linux系统启动时挂上去的比如处理ip协议的pakcet_type，就是在 inet_init()时挂上去的
+还有些驱动模块加载的时候才加上去的
+*/
 #define PTYPE_HASH_SIZE	(16)
 #define PTYPE_HASH_MASK	(PTYPE_HASH_SIZE - 1)
 

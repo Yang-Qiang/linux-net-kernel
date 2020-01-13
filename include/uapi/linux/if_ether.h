@@ -37,6 +37,7 @@
 
 /*
  *	These are the defined Ethernet Protocol ID's.
+ *  目前已定义的以太网协议
  */
 
 #define ETH_P_LOOP	0x0060		/* Ethernet Loopback packet	*/

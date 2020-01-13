@@ -444,16 +444,16 @@ extern bool force_irqthreads;
    tasklets are more than enough. F.e. all serial device BHs et
    al. should be converted to tasklets, not to softirqs.
  */
-
+//目前已注册的软中断有10种，定义为一个全局数组：
 enum
 {
-	HI_SOFTIRQ=0,
-	TIMER_SOFTIRQ,
-	NET_TX_SOFTIRQ,
-	NET_RX_SOFTIRQ,
+	HI_SOFTIRQ=0,  /* 优先级高的tasklets */
+	TIMER_SOFTIRQ,  /* 定时器的下半部 */
+	NET_TX_SOFTIRQ,  /* 发送网络数据包 */
+	NET_RX_SOFTIRQ,   /* 接收网络数据包 */
 	BLOCK_SOFTIRQ,
 	BLOCK_IOPOLL_SOFTIRQ,
-	TASKLET_SOFTIRQ,
+	TASKLET_SOFTIRQ,  /* 正常优先级的tasklets */
 	SCHED_SOFTIRQ,
 	HRTIMER_SOFTIRQ,
 	RCU_SOFTIRQ,    /* Preferable RCU should always be the last softirq */

@@ -119,9 +119,9 @@ int sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 	/* And release qdisc */
 	spin_unlock(root_lock);
 
-	HARD_TX_LOCK(dev, txq, smp_processor_id());
+	HARD_TX_LOCK(dev, txq, smp_processor_id()); /*取得发送队列的锁*/
 	if (!netif_xmit_frozen_or_stopped(txq))
-		ret = dev_hard_start_xmit(skb, dev, txq);
+		ret = dev_hard_start_xmit(skb, dev, txq); /*如果发送队列已经开启并且发送队列没有僵死，直接调用 dev_hard_start_xmit发送报文*/
 
 	HARD_TX_UNLOCK(dev, txq);
 

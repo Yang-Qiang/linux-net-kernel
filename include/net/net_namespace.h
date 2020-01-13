@@ -51,7 +51,7 @@ struct net {
 #endif
 	spinlock_t		rules_mod_lock;
 
-	struct list_head	list;		/* list of network namespaces */
+	struct list_head	list;		/* list of network namespaces */  //用于将内核中的所有的网络命名空间以双链表的形式组织起来，即将所有的struct net结构体组织成双链表；
 	struct list_head	cleanup_list;	/* namespaces on death row */
 	struct list_head	exit_list;	/* Use only net_mutex */
 
@@ -69,9 +69,11 @@ struct net {
 	struct sock 		*rtnl;			/* rtnetlink socket */
 	struct sock		*genl_sock;
 
-	struct list_head 	dev_base_head;
+	struct list_head 	dev_base_head;   //因为在一个网络命名空间中，可能有多个网络设备,而这些网络设备也是
+										//通过双链表的形式组织起来的。而dev_base_head就是网络设备双链表的链表头；
 	struct hlist_head 	*dev_name_head;
-	struct hlist_head	*dev_index_head;
+	struct hlist_head	*dev_index_head;//在一个网络设备命名空间中，每一个网络设备在系统中都会有一个唯一的接口索引值(int ifindex),同样内核也是通过内核中的哈希散列表
+										//来实现根据接口索引值快速查找网络设备。
 	unsigned int		dev_base_seq;	/* protected by rtnl_mutex */
 	int			ifindex;
 
@@ -84,7 +86,7 @@ struct net {
 	struct netns_mib	mib;
 	struct netns_packet	packet;
 	struct netns_unix	unx;
-	struct netns_ipv4	ipv4;
+	struct netns_ipv4	ipv4;//是一个netns_ipv4结构实例，用于ipv4子系统
 #if IS_ENABLED(CONFIG_IPV6)
 	struct netns_ipv6	ipv6;
 #endif
@@ -131,8 +133,9 @@ struct net {
 #include <linux/seq_file_net.h>
 
 /* Init's network namespace */
-extern struct net init_net;
+extern struct net init_net; //在linux内核中默认情况下，会有一个默认的网络命名空间，其名为init_net,并也将其导出，作为全局变量。
 
+//创建新的网络命名空间
 #ifdef CONFIG_NET_NS
 extern struct net *copy_net_ns(unsigned long flags,
 	struct user_namespace *user_ns, struct net *old_net);

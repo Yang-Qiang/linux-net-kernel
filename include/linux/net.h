@@ -102,10 +102,20 @@ struct socket_wq {
  *  @wq: wait queue for several uses
  */
 struct socket {
-	socket_state		state;
+	socket_state		state;//套接字所处状态，有些状态只对tcp套接字有效
+/* state
+	typedef enum {
+	SS_FREE = 0,			//not allocated		
+	SS_UNCONNECTED,			//unconnected to any socket	
+	SS_CONNECTING,			// in process of connecting	
+	SS_CONNECTED,			// connected to socket		
+	SS_DISCONNECTING		// in process of disconnecting	
+} socket_state;
+*/
+	
 
 	kmemcheck_bitfield_begin(type);
-	short			type;
+	short			type;//套接字类型, 如SOCK_STREAM
 	kmemcheck_bitfield_end(type);
 
 	unsigned long		flags;
@@ -114,7 +124,7 @@ struct socket {
 
 	struct file		*file;
 	struct sock		*sk;
-	const struct proto_ops	*ops;
+	const struct proto_ops	*ops;//实现从套接字系统到传输层的接口，在ipv4中，一个传输层协议对应一个inet_protosw结构体
 };
 
 struct vm_area_struct;

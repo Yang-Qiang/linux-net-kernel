@@ -147,7 +147,7 @@ struct sk_buff;
 #if (65536/PAGE_SIZE + 1) < 16
 #define MAX_SKB_FRAGS 16UL
 #else
-#define MAX_SKB_FRAGS (65536/PAGE_SIZE + 1)
+#define MAX_SKB_FRAGS (65536/PAGE_SIZE + 1)//最多支持64个分片
 #endif
 
 typedef struct skb_frag_struct skb_frag_t;
@@ -271,7 +271,7 @@ struct skb_shared_info {
 	/*
 	 * Warning : all fields before dataref are cleared in __alloc_skb()
 	 */
-	atomic_t	dataref;
+	atomic_t	dataref;//引用计数器，当一个数据缓冲区被多个skb描述符引用时，增加相应的计数
 
 	/* Intermediate layers must ensure that destructor_arg
 	 * remains valid until skb destructor */
@@ -297,9 +297,9 @@ struct skb_shared_info {
 
 
 enum {
-	SKB_FCLONE_UNAVAILABLE,
-	SKB_FCLONE_ORIG,
-	SKB_FCLONE_CLONE,
+	SKB_FCLONE_UNAVAILABLE, //SKB没有被克隆
+	SKB_FCLONE_ORIG,//在skbuff_fclone_cache分配的父skb，可以被克隆
+	SKB_FCLONE_CLONE,//在skbuff_fclone_cache分配的子skb，从父skb克隆得到的
 };
 
 enum {
@@ -398,14 +398,15 @@ typedef unsigned char *sk_buff_data_t;
  */
 
 struct sk_buff {
-	/* These two members must be first. 这两个域是用来连接相关的skb的(例如如果有分片，将这些分片连接在一起可以) */
+	/* These two members must be first. 这两个成员主要实现链表的一些操作，数据包可以存在在多个不同类型的链表和队列中，比如TCP 套接字发送队列 */
 	struct sk_buff		*next;
 	struct sk_buff		*prev;
 
 	ktime_t			tstamp; //记录接收或者传输报文的时间戳
 
-	struct sock		*sk; //指向拥有此缓冲区的套接字的sock数据结构。
-	struct net_device	*dev; //标记接收和发送当前包的设备
+	struct sock		*sk; //指向拥有此缓冲区的套接字的sock数据结构。     当数据的源地址和目的地址任何一个都不是本机时，该值为NULL
+       					//例如本机只是转发数据包
+	struct net_device	*dev; //标记接收和发送当前包的设备，收包时设备创建调用__netdev_alloc_skb()时设置dev，发包时设为输出数据包的网络设备
 
 	/*
 	 * This is the control buffer. It is free to use for every
@@ -418,15 +419,23 @@ struct sk_buff {
 	 例如：TCP使用这个空间存储一个tcp_skb_cb数据结构。那么访问该数据结构的宏如下：
 	 define TCP_SKB_CB(_ _skb) ((struct tcp_skb_cb *)&((_ _skb)->cb[0]))
 	*/
-	char			cb[48] __aligned(8);
+	char			cb[48] __aligned(8); //这个域是保存每层的控制信息
 
 	unsigned long		_skb_refdst;
 #ifdef CONFIG_XFRM
 	struct	sec_path	*sp;
 #endif
-	unsigned int		len, //指缓冲区中数据区块的大小。这个长度包括主要缓冲区（由head所指）的数据以及一些片段的数据。len也会把报头算在内。
-				data_len; //只计算片段中的数据的大小。
-	__u16			mac_len,//指的是mac头长度
+
+	//包的总长度是len
+	//SKB是由一个线性的数据缓冲区(main bufer) for head)以及一个或多个页缓冲区(fragments)构成，如果有页缓冲区，则
+	//页缓冲区中的总字节数是：data_len。所以线性缓冲区的长度为skb->len - skb->data_len，
+	//或者直接调用 skb_headlen()。
+	// mac_len记录了MAC头部的长度。
+	//csum: 为数据包的check sum。 
+
+	unsigned int		len, //表示当前协议数据包的长度。它包括主缓冲区中的数据长度(data指针指向它)和分片中的数据长度。比如，处在网络层，len指的是ip包的长度，如果包已经到了应用层，则len是应用层头部和数据载荷的长度。
+				data_len; //这个长度只表示切片数据的长度，也就是skb_shared_info中的长度。 
+	__u16			mac_len,//指的是mac头长度,实际的长度和网络介质有关
 				hdr_len;
 	union {
 		__wsum		csum;
@@ -438,19 +447,21 @@ struct sk_buff {
 	__u32			priority;//表示正被传输或转发的包QoS等级,取决于ip中的tos域
 	kmemcheck_bitfield_begin(flags1);
 	__u8			local_df:1,//允许在本地分配
-				cloned:1,//保存当前的skb_buff是克隆的还是原始数据
+				cloned:1,//当前的skb_buff是克隆的还是原始数据
 				ip_summed:2, //是否计算ip校验和
-				nohdr:1,
+				nohdr:1,//标识payload是否被单独引用，不存在协议首部，如果被引用，则不能访问协议首部
 				nfctinfo:3;
-	__u8			pkt_type:3,//报文类型，例如广播，多播，回环，本机，类型在packet.h定义
-				fclone:2,//skb_buff克隆状态
+	__u8			pkt_type:3,//报文类型，例如广播，多播，回环，本机，类型在packet.h定义，由二层的目的地址确定，对于以太网设备，由eth_type_trans()初始化
+				fclone:2,//预测是否会克隆，用于确定从哪个高速缓存中分配。
+					SKB_FCLONE_UNAVAILABLE, //SKB没有被克隆       SKB_FCLONE_ORIG,//在skbuff_fclone_cache分配的父skb，可以被克隆.
+											//SKB_FCLONE_CLONE,//在skbuff_fclone_cache分配的子skb，从父skb克隆得到的
 				ipvs_property:1,
 				peeked:1,
 				nf_trace:1;
 	kmemcheck_bitfield_end(flags1);
-	__be16			protocol;//表示L3层的协议。比如IP,IPV6等,整的列表在 include/linux/if_ether.h 中。由于每个协议都有自己的协议处理函数来处理接收到的包，因此，这个域被设备驱动用于通知上层调用哪个协议处理函数。
+	__be16			protocol;//从二层设备看到的上次协议，比如IP,IPV6, ARP等,整的列表在 include/linux/if_ether.h 中。由于每个协议都有自己的协议处理函数来处理接收到的包，因此，这个域被设备驱动用于通知上层调用哪个协议处理函数。
 
-	void			(*destructor)(struct sk_buff *skb);/////skb的析构函数，一般都是设置为sock_rfree或者sock_wfree.  
+	void			(*destructor)(struct sk_buff *skb);/////skb的析构函数，一般都是设置为sock_rfree或者sock_wfree, 在释放skb的时候被调用
 	//netfilter相关的域。 
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	struct nf_conntrack	*nfct; //netfilter的跟踪连接重新组装指针
@@ -520,8 +531,13 @@ struct sk_buff {
 	unsigned char		*head, //分配给的线性数据内存首地址( 建立起一个观念：并不是分配这么多内存，就都能被使用作为数据存储，可能没这么多
 							   //分配这么多 就足够了，也不一定(非线性数据就是例子) )
 				*data;//指向保存数据内容的首地址！我们由head可以知道，head和data不一定就是指在同一个位置！！！
-	unsigned int		truesize;//代表缓冲区的总大小，包括sk_buff结构本身。
-	atomic_t		users; //使用当前sk_buff缓冲区的引用计数。为0才会释放。
+	unsigned int		truesize;//这是缓冲区的总长度，包括sk_buff结构和数据部分。如果申请一个len字节的缓冲区，alloc_skb函数会把它初始化成len+sizeof(sk_buff)。当skb->len变化时，这个变量也会变化。
+	atomic_t		users; //使用当前sk_buff缓冲区的引用计数。为0才会释放，每个实体引用该skb的时候需要在适当的时机递增或递减引用计数
+
+	//通常，Data Buffer 只是一个简单的线性 buffer，这时候 len 就是线性 buffer 中的数据长度；
+	//但在有 ‘paged data’ 情况下， Data Buffer 不仅包括第一个线性 buffer ，还包括多个 page buffer；
+	//这种情况下， ‘data_len’ 指的是 page buffer 中数据的长度，’len’ 指的是线性 buffer 加上 page buffer 的长度；
+	//len – data_len 就是线性 buffer 的长度。
 };
 
 #ifdef __KERNEL__

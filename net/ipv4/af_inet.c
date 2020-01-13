@@ -343,7 +343,7 @@ lookup_protocol:
 	    !ns_capable(net->user_ns, CAP_NET_RAW))
 		goto out_rcu_unlock;
 
-	sock->ops = answer->ops;
+	sock->ops = answer->ops;//设置套接字系统到传输层之间的接口
 	answer_prot = answer->prot;
 	answer_no_check = answer->no_check;
 	answer_flags = answer->flags;
@@ -379,7 +379,7 @@ lookup_protocol:
 
 	inet->inet_id = 0;
 
-	sock_init_data(sock, sk);
+	sock_init_data(sock, sk);//初始化sock部分结构体成员
 
 	sk->sk_destruct	   = inet_sock_destruct;
 	sk->sk_protocol	   = protocol;
@@ -1550,6 +1550,13 @@ static const struct net_protocol igmp_protocol = {
 };
 #endif
 
+/*
+数据包从L2传递到L3时，通过packet_type结构来找到L3协议的处理函数。
+同理，数据包从L3传递到L4时，通过net_protocol结构来找到L4协议的处理函数。
+*/
+
+
+/* TCP协议的net_protocol */
 static const struct net_protocol tcp_protocol = {
 	.early_demux	=	tcp_v4_early_demux,
 	.handler	=	tcp_v4_rcv,
@@ -1557,6 +1564,7 @@ static const struct net_protocol tcp_protocol = {
 	.no_policy	=	1,
 	.netns_ok	=	1,
 };
+
 
 static const struct net_offload tcp_offload = {
 	.callbacks = {
@@ -1567,6 +1575,7 @@ static const struct net_offload tcp_offload = {
 	},
 };
 
+/* UDP协议的net_protocol */
 static const struct net_protocol udp_protocol = {
 	.handler =	udp_rcv,
 	.err_handler =	udp_err,
@@ -1581,6 +1590,7 @@ static const struct net_offload udp_offload = {
 	},
 };
 
+/* ICMP协议的net_protocl */
 static const struct net_protocol icmp_protocol = {
 	.handler =	icmp_rcv,
 	.err_handler =	icmp_err,
@@ -1707,7 +1717,8 @@ static int __init inet_init(void)
 	sysctl_local_reserved_ports = kzalloc(65536 / 8, GFP_KERNEL);
 	if (!sysctl_local_reserved_ports)
 		goto out;
-
+	
+	//下面注册传输层协议操作集	
 	rc = proto_register(&tcp_prot, 1);
 	if (rc)
 		goto out_free_reserved_ports;
@@ -1727,6 +1738,7 @@ static int __init inet_init(void)
 	/*
 	 *	Tell SOCKET that we are alive...
 	 */
+	//注册INET协议族的handler  
 
 	(void)sock_register(&inet_family_ops);
 
@@ -1739,6 +1751,7 @@ static int __init inet_init(void)
 	/*
 	 *	Add all the base protocols.
 	 */
+	//将INET协议族协议数据包接收函数添加到系统中,ip层根据数据包协议调用INET协议族协议数据包接收函数，将数据包送往上一层
 
 	if (inet_add_protocol(&icmp_protocol, IPPROTO_ICMP) < 0)
 		pr_crit("%s: Cannot add ICMP protocol\n", __func__);

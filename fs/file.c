@@ -578,7 +578,7 @@ void __fd_install(struct files_struct *files, unsigned int fd,
 
 void fd_install(unsigned int fd, struct file *file)
 {
-	__fd_install(current->files, fd, file);
+	__fd_install(current->files, fd, file);//current为当前进程
 }
 
 EXPORT_SYMBOL(fd_install);

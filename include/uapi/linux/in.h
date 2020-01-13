@@ -183,7 +183,7 @@ struct in_pktinfo {
 /* Structure describing an Internet (IP) socket address. */
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
 struct sockaddr_in {
-  __kernel_sa_family_t	sin_family;	/* Address family		*/
+  __kernel_sa_family_t	sin_family;	/* Address family	相关定义在linux/socket.h	*/
   __be16		sin_port;	/* Port number			*/
   struct in_addr	sin_addr;	/* Internet address		*/
 

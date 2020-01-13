@@ -397,6 +397,8 @@ inline void raise_softirq_irqoff(unsigned int nr)
 		wakeup_softirqd();
 }
 
+
+//调用raise_softirq()来触发软中断。
 void raise_softirq(unsigned int nr)
 {
 	unsigned long flags;
@@ -411,6 +413,12 @@ void __raise_softirq_irqoff(unsigned int nr)
 	trace_softirq_raise(nr);
 	or_softirq_pending(1UL << nr);
 }
+
+
+/**
+ * @nr: 软中断的索引号
+ * @action: 软中断的处理函数
+ */
 
 void open_softirq(int nr, void (*action)(struct softirq_action *))
 {
@@ -629,6 +637,7 @@ void __init softirq_init(void)
 			&per_cpu(tasklet_hi_vec, cpu).head;
 	}
 
+	//注册tastlet软中断
 	open_softirq(TASKLET_SOFTIRQ, tasklet_action);
 	open_softirq(HI_SOFTIRQ, tasklet_hi_action);
 }

@@ -195,6 +195,12 @@ out:
  *	Buffers may only be allocated from interrupts using a @gfp_mask of
  *	%GFP_ATOMIC.
  */
+/*
+size，待分配SKB的线性存储区的长度。
+gfp_mask，分配内存的方式
+flags，预测是否会克隆，用于确定从哪个高速缓存中分配。
+node，当支持NUMA（非均匀质存储结构）时，用于确定何种区域中分配SKB。
+*/
 struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 			    int flags, int node)
 {

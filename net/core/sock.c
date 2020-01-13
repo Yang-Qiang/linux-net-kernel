@@ -429,6 +429,11 @@ static void sock_disable_timestamp(struct sock *sk, unsigned long flags)
 }
 
 
+/*
+主要干了两件事，一是检查这个socket的receive buffer是不是满了，如果满了的话，丢弃该数据包，
+然后就是调用sk_filter看这个包是否是满足条件的包，如果当前socket上设置了filter，且该包不满足条件的话，
+这个数据包也将被丢弃（在Linux里面，每个socket上都可以像tcpdump里面一样定义filter，不满足条件的数据包将会被丢弃）
+*/
 int sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 {
 	int err;
@@ -468,11 +473,11 @@ int sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 
 	spin_lock_irqsave(&list->lock, flags);
 	skb->dropcount = atomic_read(&sk->sk_drops);
-	__skb_queue_tail(list, skb);
+	__skb_queue_tail(list, skb);//将数据包放入socket接收队列的末尾
 	spin_unlock_irqrestore(&list->lock, flags);
 
 	if (!sock_flag(sk, SOCK_DEAD))
-		sk->sk_data_ready(sk, skb_len);
+		sk->sk_data_ready(sk, skb_len);//通知socket数据包已经准备好
 	return 0;
 }
 EXPORT_SYMBOL(sock_queue_rcv_skb);
@@ -2265,6 +2270,7 @@ void sk_stop_timer(struct sock *sk, struct timer_list* timer)
 }
 EXPORT_SYMBOL(sk_stop_timer);
 
+/*初始化sock 部分结构体成员*/
 void sock_init_data(struct socket *sock, struct sock *sk)
 {
 	skb_queue_head_init(&sk->sk_receive_queue);
