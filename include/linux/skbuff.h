@@ -470,7 +470,7 @@ struct sk_buff {
 	struct nf_bridge_info	*nf_bridge; //保存桥接信息
 #endif
 
-	int			skb_iif;//接收设备的index
+	int			skb_iif;//原始接收到报文的网卡索引,不一定和处理该数据包的设备相同
 
 	__u32			rxhash;
 

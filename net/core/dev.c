@@ -1511,7 +1511,7 @@ int register_netdevice_notifier(struct notifier_block *nb)
 		goto unlock;
 	for_each_net(net) {
 		for_each_netdev(net, dev) {
-			err = nb->notifier_call(nb, NETDEV_REGISTER, dev);
+			err = nb->notifier_call(nb, NETDEV_REGISTER, dev);//NETDEV_REGISTER和NETDEV_UP重新发送给已注册的模块
 			err = notifier_to_errno(err);
 			if (err)
 				goto rollback;
@@ -3642,7 +3642,7 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
 	trace_netif_receive_skb(skb);
 
 	/* if we've gotten here through NAPI, check netpoll */
-	if (netpoll_receive_skb(skb))
+	if (netpoll_receive_skb(skb))//如果有netpoll实例接收，就不在上送到上层协议
 		goto out;
 
 	orig_dev = skb->dev;
@@ -3655,7 +3655,7 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
 	pt_prev = NULL;
 
 another_round:
-	skb->skb_iif = skb->dev->ifindex;/*网卡索引*/
+	skb->skb_iif = skb->dev->ifindex;/*设置原始接收到该报文的网卡索引*/
 
 	__this_cpu_inc(softnet_data.processed);
 
@@ -3722,7 +3722,7 @@ ncls:
 			ret = deliver_skb(skb, pt_prev, orig_dev);
 			pt_prev = NULL;
 		}
-		switch (rx_handler(&skb)) {//交给rx_handler处理，例如OVS、linux bridge等；
+		switch (rx_handler(&skb)) {//交给rx_handler处理，例如OVS、linux bridge等；如果成功处理则不上送给上层协议栈
 		case RX_HANDLER_CONSUMED:
 			ret = NET_RX_SUCCESS;
 			goto out;
@@ -4330,7 +4330,7 @@ static int process_backlog(struct napi_struct *napi, int quota)
 		struct sk_buff *skb;
 		unsigned int qlen;
 
-		while ((skb = __skb_dequeue(&sd->process_queue))) {
+		while ((skb = __skb_dequeue(&sd->process_queue))) {//netif_rx收到包之后就挂在sd->input_pkt_queue,但是在process_queue链表收包
 			rcu_read_lock();
 			local_irq_enable();
 			__netif_receive_skb(skb);//netif_receive_skb的调用就在这里了
@@ -4347,7 +4347,7 @@ static int process_backlog(struct napi_struct *napi, int quota)
 		qlen = skb_queue_len(&sd->input_pkt_queue);
 		if (qlen)
 			skb_queue_splice_tail_init(&sd->input_pkt_queue,
-						   &sd->process_queue);
+						   &sd->process_queue);//netif_rx收到包之后就挂在sd->input_pkt_queue，然后在这里再把skb放在process_queue链表上
 
 		if (qlen < quota - work) {
 			/*

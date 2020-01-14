@@ -1821,7 +1821,7 @@ static int __init inet_init(void)
 
 	ipfrag_init();
 
-	dev_add_pack(&ip_packet_type);
+	dev_add_pack(&ip_packet_type);//初始化ip层接收
 
 	rc = 0;
 out:

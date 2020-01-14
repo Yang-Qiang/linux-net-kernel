@@ -262,16 +262,16 @@ struct hh_cache {
 #define LL_RESERVED_SPACE_EXTRA(dev,extra) \
 	((((dev)->hard_header_len+(dev)->needed_headroom+(extra))&~(HH_DATA_MOD - 1)) + HH_DATA_MOD)
 
-struct header_ops {
+struct header_ops {//以太网设备参考eth.c相关函数实现
 	int	(*create) (struct sk_buff *skb, struct net_device *dev,
 			   unsigned short type, const void *daddr,
-			   const void *saddr, unsigned int len);
+			   const void *saddr, unsigned int len);//根据源和目标地址创建硬件头部
 	int	(*parse)(const struct sk_buff *skb, unsigned char *haddr);
-	int	(*rebuild)(struct sk_buff *skb);
-	int	(*cache)(const struct neighbour *neigh, struct hh_cache *hh, __be16 type);
+	int	(*rebuild)(struct sk_buff *skb);//用于传输开始前,arp解析完成之后，重建硬件头部
+	int	(*cache)(const struct neighbour *neigh, struct hh_cache *hh, __be16 type);//根据arp查询结果更新hh_cache结构体,以太网设备为eth_header_cache
 	void	(*cache_update)(struct hh_cache *hh,
 				const struct net_device *dev,
-				const unsigned char *haddr);
+				const unsigned char *haddr);//更新hh_cache结构体目的地址
 };
 
 /* These flag bits are private to the generic network queueing
@@ -333,7 +333,7 @@ struct napi_struct {
 	struct net_device	*dev;
 	struct sk_buff		*gro_list;
 	struct sk_buff		*skb;
-	struct list_head	dev_list;
+	struct list_head	dev_list;//每个napi结构体可以挂载多个网卡设备
 };
 
 enum {
@@ -1086,7 +1086,7 @@ struct net_device {
 
 
 	/* currently active device features */
-	netdev_features_t	features;
+	netdev_features_t	features;//参考netdev_features.h，如NETIF_F_GSO，tso特性
 	/* user-changeable features */
 	netdev_features_t	hw_features;
 	/* user-requested features */
@@ -1102,7 +1102,7 @@ struct net_device {
 
 	/* Interface index. Unique device identifier	*/
 	int			ifindex;   //网络设备的接口索引值，独一无二的网络设备标识符；
-	int			iflink;
+	int			iflink;//网络设备的接口索引值，主要用于虚拟设备
 
 	struct net_device_stats	stats;
 	atomic_long_t		rx_dropped; /* dropped packets by core network
@@ -1121,12 +1121,12 @@ struct net_device {
 	const struct ethtool_ops *ethtool_ops;   //ethtool操作函数集
 
 	/* Hardware header description */
-	const struct header_ops *header_ops;
+	const struct header_ops *header_ops;//根据源和目标硬件地址创建硬件头部，对于以太网设备，该值为eth_header_ops
 
-	unsigned int		flags;	/* interface flags (a la BSD)	*/ //网络设备接口的标识符,其状态类型被定义在<linux/if.h>之中；
+	unsigned int		flags;	/* interface flags (a la BSD)	*/ //网络设备接口的标识符,其状态类型被定义在<linux/if.h>之中,如IFF_UP
 	unsigned int		priv_flags; /* Like 'flags' but invisible to userspace.
 					     * See if.h for definitions. */
-	unsigned short		gflags;
+	unsigned short		gflags;//记录设备IFF_PROMISC和IFF_ALLMULTI状态
 	unsigned short		padded;	/* How much padding added by alloc_netdev() */
 
 	unsigned char		operstate; /* RFC2863 operstate */
@@ -1135,9 +1135,9 @@ struct net_device {
 	unsigned char		if_port;	/* Selectable AUI, TP,..*/
 	unsigned char		dma;		/* DMA channel		*/
 
-	unsigned int		mtu;	/* interface MTU value		*/  //网络设备接口的最大传输单元；
-	unsigned short		type;	/* interface hardware type	*/  //接口硬件类型，在<if_arp.h>中定义了每一个接口硬件类型；
-	unsigned short		hard_header_len;	/* hardware hdr length	*/ //硬件接口头长度；
+	unsigned int		mtu;	/* interface MTU value		*/  //网络设备接口的最大传输单元；以太网设备为1500
+	unsigned short		type;	/* interface hardware type	*/  //接口硬件类型，在<if_arp.h>中定义了每一个接口硬件类型；对于以太网接口，该值为ARPHRD_ETHER
+	unsigned short		hard_header_len;	/* hardware hdr length	*/ //硬件接口头长度；以太网接口为14B
 
 	/* extra head- and tailroom the hardware may need, but not in all cases
 	 * can this be guaranteed, especially tailroom. Some cases also use
@@ -1164,7 +1164,7 @@ struct net_device {
 #endif
 
 	bool			uc_promisc; //网络设备接口的单播模式
-	unsigned int		promiscuity;//网络设备是否为混杂模式
+	unsigned int		promiscuity;//网络设备混杂模式计数器
 	unsigned int		allmulti;  //网络设备接口的全组播模式；
 
 
@@ -1261,7 +1261,7 @@ struct net_device {
 	struct timer_list	watchdog_timer;
 
 	/* Number of references to this device */
-	int __percpu		*pcpu_refcnt;
+	int __percpu		*pcpu_refcnt;//网卡引用计数，通过调用网卡dev_hold()和dev_out()递增和递减
 
 	/* delayed register/unregister */
 	struct list_head	todo_list;
@@ -1568,9 +1568,9 @@ struct packet_type {
 	__be16			type;	/* This is really htons(ether_type).以太网类型定义在文件if_ether.h */
 	struct net_device	*dev;	/* NULL is wildcarded her网络设备。PF_PACKET套接字通常使用它在特定的设备监听，例如，tcpdump -i eth0  通过PF_PACKET套接字创建一个packet_type实例，然后将dev指向eth0对应的net_device数据结构。*/
 	int			(*func) (struct sk_buff *, //协议处理函数
-					 struct net_device *,
+					 struct net_device *,//当前处理该报文的设备
 					 struct packet_type *,
-					 struct net_device *);
+					 struct net_device *);//报文原始输入设备
 	bool			(*id_match)(struct packet_type *ptype,
 					    struct sock *sk);
 	void			*af_packet_priv;
@@ -1827,9 +1827,9 @@ static inline int unregister_gifconf(unsigned int family)
 struct softnet_data {
 	struct Qdisc		*output_queue;
 	struct Qdisc		**output_queue_tailp;
-	struct list_head	poll_list;
-	struct sk_buff		*completion_queue;
-	struct sk_buff_head	process_queue;
+	struct list_head	poll_list;//napi方式设备的napi结构体挂载在该链表上，从某种角度讲网卡设备挂载在该链表上
+	struct sk_buff		*completion_queue;//已完成发送数据包待删除队列
+	struct sk_buff_head	process_queue;;//非NAPI方式，参考process_backlog(),实际上上送该队列上的数据包
 
 	/* stats */
 	unsigned int		processed;
@@ -1848,8 +1848,9 @@ struct softnet_data {
 	unsigned int		input_queue_tail;
 #endif
 	unsigned int		dropped;
-	struct sk_buff_head	input_pkt_queue;
-	struct napi_struct	backlog;
+	struct sk_buff_head	input_pkt_queue;//非NAPI方式，先将报文缓存在该队列，参考process_backlog(),最后会将缓存的数据包移到
+										//process_queue队列上，然后产生数据包输入软中断，由软中断程序将数据包上送到上一级
+	struct napi_struct	backlog;//非napi方式驱动虚拟设备对应的napi结构体
 };
 
 static inline void input_queue_head_incr(struct softnet_data *sd)
